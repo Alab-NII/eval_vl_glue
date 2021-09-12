@@ -2,18 +2,20 @@
 
 This directory contains an image extractor for our experiment.
 
-We used an image detector pretrained by Peter Anderson et al, (https://github.com/peteanderson80/bottom-up-attention).
-We converted their caffe model into torch module.
+We used an image detector pretrained by Peter Anderson et al, (https://github.com/peteanderson80/bottom-up-attention).  
+We converted their caffe model into a torch module.
 
 ## Items
 
-- data
-- detect_demo.ipynb
-- rcnn.py
+### detect_demo.ipynb
 
-See how to use our moudle in the detect_demo.ipynb.
+See how to use our module in the detect_demo.ipynb.
+
+### rcnn.py
 
 rcnn.py is model definition created in a semi-automatic way from the original caffe prototxt.
+
+### data
 
 Files required to use the image extractor is in the data directory except for the model weights.
 
