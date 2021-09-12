@@ -1,3 +1,14 @@
+# model files
+resnet101_faster_rcnn_final_iter_320000.pt
+resnet101_faster_rcnn_final.pt
+
+# directory
+sandbox/
+papers/
+
+# mac
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
