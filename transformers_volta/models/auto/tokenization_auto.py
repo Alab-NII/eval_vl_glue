@@ -21,13 +21,15 @@ from ...configuration_utils import PretrainedConfig
 from ...file_utils import is_sentencepiece_available, is_tokenizers_available
 from ...utils import logging
 from ..bert.tokenization_bert import BertTokenizer
+# FOR CUSTOM MODELS
 from ..volta.tokenization_volta import VoltaTokenizer
 from .configuration_auto import (
     AutoConfig,
     EncoderDecoderConfig,
     BertConfig,
-    VoltaConfig,
     replace_list_option_in_docstrings,
+    # FOR CUSTOM MODELS
+    VoltaConfig,
 )
 
 
@@ -45,6 +47,7 @@ logger = logging.get_logger(__name__)
 TOKENIZER_MAPPING = OrderedDict(
     [
         (BertConfig, (BertTokenizer, BertTokenizerFast)),
+        # FOR CUSTOM MODELS
         (VoltaConfig, (VoltaTokenizer, None)),
     ]
 )

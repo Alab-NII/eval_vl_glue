@@ -20,6 +20,7 @@ from collections import OrderedDict
 from ...configuration_utils import PretrainedConfig
 from ..encoder_decoder.configuration_encoder_decoder import EncoderDecoderConfig
 from ..bert.configuration_bert import BERT_PRETRAINED_CONFIG_ARCHIVE_MAP, BertConfig
+# FOR CUSTOM MODELS
 from ..volta.configuration_volta import VOLTA_PRETRAINED_CONFIG_ARCHIVE_MAP, VoltaConfig
 
 
@@ -28,6 +29,7 @@ ALL_PRETRAINED_CONFIG_ARCHIVE_MAP = dict(
     for pretrained_map in [
         # Add archive maps here
         BERT_PRETRAINED_CONFIG_ARCHIVE_MAP,
+        # FOR CUSTOM MODELS
     ]
     for key, value, in pretrained_map.items()
 )
@@ -38,6 +40,7 @@ CONFIG_MAPPING = OrderedDict(
         # Add configs here
         ("encoder-decoder", EncoderDecoderConfig),
         ("bert", BertConfig),
+        # FOR CUSTOM MODELS
         ("volta", VoltaConfig),
     ]
 )
@@ -47,6 +50,7 @@ MODEL_NAMES_MAPPING = OrderedDict(
         # Add full (and cased) model names here
         ("encoder-decoder", "Encoder decoder"),
         ("bert", "BERT"),
+        # FOR CUSTOM MODELS
         ('volta', 'VOLTA'),
     ]
 )

@@ -38,6 +38,8 @@ from ..bert.modeling_bert import (
     BertLMHeadModel,
     BertModel,
 )
+
+# FOR CUSTOM MODELS
 # We have just implemented a model for the simple classification
 from ..volta.modeling_volta import (
     #VoltaForMaskedLM,
@@ -55,8 +57,9 @@ from .configuration_auto import (
     AutoConfig,
     EncoderDecoderConfig,
     BertConfig,
-    VoltaConfig,
     replace_list_option_in_docstrings,
+    # FOR CUSTOM MODEL
+    VoltaConfig,
 )
 
 
@@ -68,6 +71,7 @@ MODEL_MAPPING = OrderedDict(
         # Base model mapping
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertModel),
+        # FOR CUSTOM MODEL
         (VoltaConfig, VoltaModel),
     ]
 )
@@ -77,6 +81,7 @@ MODEL_FOR_PRETRAINING_MAPPING = OrderedDict(
         # Model for pre-training mapping
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForPreTraining),
+        # FOR CUSTOM MODELS
     ]
 )
 
@@ -85,6 +90,7 @@ MODEL_WITH_LM_HEAD_MAPPING = OrderedDict(
         # Model with LM heads mapping
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForMaskedLM),
+        # FOR CUSTOM MODELS
     ]
 )
 
@@ -93,6 +99,7 @@ MODEL_FOR_CAUSAL_LM_MAPPING = OrderedDict(
         # Model for Causal LM mapping
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertLMHeadModel),
+        # FOR CUSTOM MODELS
     ]
 )
 
@@ -101,12 +108,14 @@ MODEL_FOR_MASKED_LM_MAPPING = OrderedDict(
         # Model for Masked LM mapping
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForMaskedLM),
+        # FOR CUSTOM MODELS
     ]
 )
 
 MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING = OrderedDict(
     [
         # Model for Seq2Seq Causal LM mapping
+        # FOR CUSTOM MODELS
     ]
 )
 
@@ -116,6 +125,7 @@ MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING = OrderedDict(
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForSequenceClassification),
         (VoltaConfig, VoltaForSequenceClassification),
+        # FOR CUSTOM MODELS
     ]
 )
 
@@ -124,12 +134,14 @@ MODEL_FOR_QUESTION_ANSWERING_MAPPING = OrderedDict(
         # Model for Question Answering mapping
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForQuestionAnswering),
+        # FOR CUSTOM MODELS
     ]
 )
 
 MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING = OrderedDict(
     [
         # Model for Table Question Answering mapping
+        # FOR CUSTOM MODELS
     ]
 )
 
@@ -138,6 +150,7 @@ MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING = OrderedDict(
         # Model for Token Classification mapping
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForTokenClassification),
+        # FOR CUSTOM MODELS
     ]
 )
 
@@ -146,6 +159,7 @@ MODEL_FOR_MULTIPLE_CHOICE_MAPPING = OrderedDict(
         # Model for Multiple Choice mapping
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForMultipleChoice),
+        # FOR CUSTOM MODELS
     ]
 )
 
@@ -153,6 +167,7 @@ MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING = OrderedDict(
     [
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForNextSentencePrediction),
+        # FOR CUSTOM MODELS
     ]
 )
 
