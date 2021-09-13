@@ -1,2 +1,21 @@
-Pillow
+# global
+# Please install torch and torchvision 
+# with an appropriate version for your environment mannually
+# torch
+# torchvision
 numpy
+
+# required when  you use jupyter notebook
+# You might need "jupyter nbextension enable --py widgetsnbextension"
+# notebook
+# ipywidgets
+
+# extractor
+Pillow
+
+# transformer_volta
+tqdm
+regex!=2019.12.17
+sacremoses
+requests
+filelock
