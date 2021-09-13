@@ -4,7 +4,7 @@ Transformers used for our experiments.
 
 We made this module based on transformers (https://github.com/huggingface/transformers).
 
-We modifiied 4.4.0.dev0.
+We customized 4.4.0.dev0　to leave only the parts related to our experiment.
 - We left only models we used in our experiments and models required by those models: auto, BERT, encoder_decoder
 - We added a volta model (in the models/volta directory).
 - Some files for the model registration (such as __init__.py) have been changed.
