@@ -19,16 +19,18 @@ This repository consists of four parts:
 
 We assume that we can use Python3 from the 'python' command.
 
-And please install PyTorch with an appropriate version for your environment.
+And please install PyTorch and torchvision with an appropriate version for your environment.
 
 
 ## Usage
 
 ### Install
 
-We combined extractor and transformers_volta into a package eval_vl_glue.
+#### 1. Clone this repository.
 
-First install the eval_vl_glue package.
+#### 2. Install the eval_vl_glue package codes.
+
+We combined extractor and transformers_volta into a package eval_vl_glue.
 You can use pip command:   
 (This will install required packages and register eval_vl_glue in your python environment)
 ```
@@ -41,11 +43,20 @@ Then, extractor and transformers_volta will be available in python.
 from eval_vl_glue import extractor, transformers_volta
 ```
 
-You can see some details for extractor and transformers_volta in the README.md in each directory.
+#### 3. Download weights for the extractor.
+
+Download the weight files from links below manually:
+- resnet101_faster_rcnn_final_iter_320000.pt : https://drive.google.com/file/d/15sQinKbn-N-nM7-9Y-3Rzj3N007ymK9y/view?usp=sharing
+
+You can place those files anywhere you want.
+We assume that they are in the download directory in the following description.
+
 
 ### Model Conversion
 
 TODO
+
+You can see some details for extractor and transformers_volta in the README.md in each directory.
 
 ### Evaluation 
 
@@ -53,7 +64,12 @@ TODO
 
 ## License
 
-TODO
+This work is licensed under the Apache License 2.0 license. 
+See LICENSE for details. 
+Third-party software and data sets are subject to their respective licenses.  
+If you find our work useful in your research, please consider citing the paper:
+
+CITATION
 
 ## Acknowledgement
 

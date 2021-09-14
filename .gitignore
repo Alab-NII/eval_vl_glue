@@ -5,6 +5,8 @@ resnet101_faster_rcnn_final_iter_320000.pt
 resnet101_faster_rcnn_final.pt
 conversion/hf_volta_models/*
 !conversion/hf_volta_models/*.gitkeep
+conversion/volta_models/*
+!conversion/volta_models/*.gitkeep
 
 # directory
 sandbox/

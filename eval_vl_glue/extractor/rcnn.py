@@ -4,17 +4,26 @@
 
 
 from dataclasses import dataclass
+import os
 
 import numpy as np
 import torch
 import torchvision
 
+# debug
+__CV2_RESIZE__ = False
+if __CV2_RESIZE__:
+    import cv2
+
 
 @dataclass
 class ModelConfig:
-    
-    objects_vocab_path: str = 'data/objects_vocab.txt'
-    attributes_vocab_path: str = 'data/attributes_vocab.txt'
+    # based on
+    # https://github.com/peteanderson80/bottom-up-attention/blob/master/lib/fast_rcnn/config.py
+    # https://github.com/peteanderson80/bottom-up-attention/blob/master/experiments/cfgs/faster_rcnn_end2end_resnet.yml
+        
+    objects_vocab_path: str =  os.path.join(os.path.dirname(__file__), 'objects_vocab.txt')
+    attributes_vocab_path: str = os.path.join(os.path.dirname(__file__),'attributes_vocab.txt')
     anchor_feat_stride: int =16
     anchor_scales:tuple =(4, 8, 16, 32)
     
@@ -23,8 +32,8 @@ class ModelConfig:
     NMS: float = 0.3
     SOFT_NMS: float = 0
     SVM: bool = False
-    BBOX_REG: bool = True
-    HAS_RPN: bool = False
+    BBOX_REG: bool = False
+    HAS_RPN: bool = True
     PROPOSAL_METHOD: str = 'selective_search'
     RPN_NMS_THRESH: float = 0.7
     RPN_PRE_NMS_TOP_N: int = 6000
@@ -34,14 +43,19 @@ class ModelConfig:
     HAS_ATTRIBUTES: bool = False
     HAS_RELATIONS: bool = False
     DEDUP_BOXES: float = 1./16.
-    PIXEL_MEANS: tuple = (102.9801, 115.9465, 122.7717)
+    PIXEL_MEANS: tuple = (122.7717, 115.9465, 102.9801) # in the RGB order
     EPS: float= 1e-14
 
 
 @dataclass
 class DetectedRegion(object):
     
+    image_width: int # the width of the original image, not the box width
+    image_height: int # the height of the original image, not the box height
+    
     box: object
+    feature: object
+    
     object_label_id: object
     attribute_label_id: object
     
@@ -254,8 +268,8 @@ class ProposalModule(object):
         # 4. sort all (proposal, score) pairs by score from highest to lowest
         # 5. take top pre_nms_topN (e.g. 6000)
         
-        order = torch.Tensor(np.argsort(scores.cpu().numpy())[::-1].copy()).to(torch.long)
-        #order = scores.argsort(descending=True)
+        #order = torch.Tensor(np.argsort(scores.cpu().numpy())[::-1].copy()).to(torch.long)
+        order = scores.argsort(descending=True)
         if pre_nms_topN > 0:
             order = order[:pre_nms_topN]
         proposals = proposals[order]
@@ -285,10 +299,10 @@ class BUTDDetector(torch.nn.Module):
     def convert_image_to_tensor(image, output_size_min_side, max_size=None, pixel_means=None):
         """
         arguments:
-            image: PIL.Image
+            image: PIL.Image or numpy.ndarray in the RGB order
             output_size_min_side: int
             max_size: int
-            pixel_means: tuple or tensor; BGR order
+            pixel_means: tuple or tensor; in the RGB order
         returns:
             a reshaped BGR tensor with the shape of (1, 3, height, width)
             a image info (a resized height, a resized width, the scaled used for resizing)
@@ -298,33 +312,55 @@ class BUTDDetector(torch.nn.Module):
             image_array = np.array(image)
         else:
             image_array = image
-        # assert (height, width, 3)
-        image_array = image_array[:,:,::-1].astype(np.float32)
-        image_array = torch.Tensor(image_array)
-        if pixel_means is not None:
-            if not isinstance(pixel_means, torch.Tensor):
-                pixel_means = torch.Tensor(pixel_means)
-            image_array -= pixel_means[None, None]
-        image_array = image_array.permute(2, 0, 1)[None]
-        # assert (1, 3, height, width)
-    
-        shape = image_array.shape
-        size_min = min(shape[-2:])
-        size_max = max(shape[-2:])
-        scale = float(output_size_min_side) / float(size_min)
-        if max_size and np.round(scale * size_max) > max_size:
-            scale = float(max_size) / float(size_max)
         
-        resized_image = torch.torch.nn.functional.interpolate(
-            image_array, scale_factor=scale, mode='bilinear', align_corners=False
-        )
+        image_array = image_array.astype(np.float32, copy=True)
+        # assert the shape is (height, width, 3), channel order is RGB
+        # and the the type is float32
+        if pixel_means is not None:
+            if not isinstance(pixel_means, np.ndarray):
+                pixel_means = np.asarray(pixel_means)
+            image_array -= pixel_means[None, None]
+        # change the color channel to BGR order
+        image_array = image_array[:,:,::-1]
+        
+        if __CV2_RESIZE__:
+            shape = image_array.shape
+            size_min = min(shape[:2])
+            size_max = max(shape[:2])
+            scale = float(output_size_min_side) / float(size_min)
+            if max_size and np.round(scale * size_max) > max_size:
+                scale = float(max_size) / float(size_max)
+            
+            resized_image = cv2.resize(image_array, None, None, fx=scale, fy=scale,
+                        interpolation=cv2.INTER_LINEAR)
+            resized_image = resized_image.transpose(2, 0, 1)[None]
+            resized_image = torch.Tensor(resized_image.copy())
+        else:
+            # change the shape to (1, 3, height, width)
+            image_array = image_array.transpose(2, 0, 1)[None]
+            image_array = torch.Tensor(image_array.copy())
+    
+            shape = image_array.shape
+            size_min = min(shape[-2:])
+            size_max = max(shape[-2:])
+            scale = float(output_size_min_side) / float(size_min)
+            if max_size and np.round(scale * size_max) > max_size:
+                scale = float(max_size) / float(size_max)
+        
+            resized_image = torch.torch.nn.functional.interpolate(
+                image_array, scale_factor=scale, mode='bilinear', align_corners=False
+            )
+        
         new_height, new_width = resized_image.shape[-2:]
+        # We use this size to know where are padded pixels in the resized tensor
         image_info = torch.Tensor([[new_height, new_width, scale]])
         return resized_image, image_info
     
-    def detect(self, image, conf_thresh=0.4, min_boxes=10, max_boxes=20):
+    def detect(self, image, conf_thresh=0.2, min_boxes=36, max_boxes=36):
         """
         Detect regions from an image
+        The default values for conf_thresh, min_boxes, and max_boxes matched to 
+            the values in lxmert/data/nlvr2_imgfeat/extract_nlvr2_image.py 
         arguments:
             image: PIL.Image or numpy.ndarray
             conf_thresh: float
@@ -337,25 +373,28 @@ class BUTDDetector(torch.nn.Module):
         nms_threshold = self.model_config.NMS
         scale = self.model_config.IMAGE_SCALES[0]
         max_size = self.model_config.MAX_SIZE
+        dedup_factor = self.model_config.DEDUP_BOXES
+        use_deduplication = dedup_factor > 0 and not self.model_config.HAS_RPN
         
         images, image_infos = self.convert_image_to_tensor(image, scale, max_size, self.pixel_means)
         
-        # ToDo: HAS_RPN
-        # ToDo: DEDUP_BOXES (make invert id list)
-    
+        if use_deduplication:
+            # not used resnet101_faster_rcnn_final
+            pass
+        
         # axis 0 in inputs should be 1
         # because this model does not tell batch ids of detected boxes 
         with torch.no_grad():
-            outputs = self(images, image_infos, output_prob=True)
-            # A dict that contains {'rois', 'cls_prob', 'attr_prob'}
-    
-        object_label_probs = outputs['cls_prob'] # cfg.TEST.SVM ==TRUE -> score
+            outputs = self(images, image_infos)
+            # A dict that contains {'rois', 'attr_prob', 'cls_prob'}
+        
+        object_label_probs = outputs['cls_prob']
         num_object_labels = object_label_probs.shape[1]
         attribute_label_probs = outputs['attr_prob']
    
         boxes = outputs['rois'][:, 1:] / image_infos[:, 2, None]
         # get coordinates in the raw image scale; exclude axis 0 (for batch id)
-        
+                
         if self.model_config.BBOX_REG:
             # Fine-tuning bbox for each object class
             num_boxes = boxes.shape[0]
@@ -368,7 +407,9 @@ class BUTDDetector(torch.nn.Module):
             # add a class axis
             boxes = boxes[:, None, :].repeat(1, num_object_labels, 1)
     
-        # ToDo: DEDUP_BOXES (restore arrays, object_label_prob and pred_boxes)
+        if use_deduplication:
+            # not used resnet101_faster_rcnn_final
+            pass
     
         # Keep only the best detections
         max_conf = torch.zeros((boxes.shape[0],))
@@ -382,31 +423,39 @@ class BUTDDetector(torch.nn.Module):
                 object_label_score[keep], max_conf[keep]
             )
         keep_boxes = torch.where(max_conf >= conf_thresh)[0]
-    
+        
         # back to ndarray
         boxes = boxes.cpu().numpy() 
+        pool5_flat = outputs['pool5_flat'].cpu().numpy()
         max_conf = max_conf.cpu().numpy()
         keep_boxes = keep_boxes.cpu().numpy()
-        object_label_probs = object_label_probs.cpu().numpy() # cfg.TEST.SVM ==TRUE -> score
+        object_label_probs = object_label_probs.cpu().numpy()
         attribute_label_probs = attribute_label_probs.cpu().numpy()
-    
-        # Adjust expected format
+        
+        # Adjust the number of boxes to expectation
         if len(keep_boxes) < min_boxes:
             keep_boxes = np.argsort(max_conf)[::-1][:min_boxes]
         elif len(keep_boxes) > max_boxes:
             keep_boxes = np.argsort(max_conf)[::-1][:max_boxes]
-    
+        
         # initialize DetectedRegion
         regions = []
-        for box, object_label_prob, attribute_label_prob in zip(
+        # the sizes of the original image (before resizing)
+        image_height = images.shape[2] / image_infos[:, 2]
+        image_width = images.shape[3] / image_infos[:, 2]
+        for box, feature, object_label_prob, attribute_label_prob in zip(
             boxes[keep_boxes], 
+            pool5_flat[keep_boxes],
             object_label_probs[keep_boxes], 
             attribute_label_probs[keep_boxes]
         ):
             object_label_id = np.argmax(object_label_prob[1:], axis=0) + 1
             attribute_label_id = np.argmax(attribute_label_prob[1:], axis=0) + 1
             regions.append(DetectedRegion(
+                image_height = image_height,
+                image_width = image_width,
                 box = box[object_label_id],
+                feature = feature,
                 object_label_id = object_label_id,
                 attribute_label_id = attribute_label_id,
                 object_label_conf = object_label_prob[object_label_id],
@@ -417,7 +466,7 @@ class BUTDDetector(torch.nn.Module):
         
         return regions
     
-    def forward(self, x, im_info, output_prob=True):
+    def forward(self, x, im_info):
         
         res4b22 = self._forward_s1_s4(x)
         res4b22_size = res4b22.shape[-2:]
@@ -460,13 +509,10 @@ class BUTDDetector(torch.nn.Module):
         outputs = {
             'rois': rois,
             'bbox_pred': bbox_pred,
+            'pool5_flat': pool5_flat,
+            'attr_prob': attr_prob,
+            'cls_prob': cls_prob
         }
-        if output_prob:
-            outputs['cls_prob'] = cls_prob
-            outputs['attr_prob'] = attr_prob
-        else:
-            outputs['cls_score'] = cls_score
-            outputs['attr_score'] = attr_score
         
         return outputs
     
@@ -474,6 +520,9 @@ class BUTDDetector(torch.nn.Module):
         
         assert len(model_config.IMAGE_SCALES) == 1, \
             f'This model support just a single scale: {len(model_config.IMAGE_SCALES)}'
+        
+        assert model_config.SVM == False, \
+            'This module only supports to use probability as object class score. SVM=True not allowed.'
     
     def _local_vocab(self, file_path, init_list=None):
         
