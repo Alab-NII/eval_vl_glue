@@ -261,7 +261,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight', '-w', type=str, required=True,
         help='path to a pretrained weight')
     parser.add_argument('--output', '-o', type=str, default=None,
-        help='path to a direcctory for the new model. if omitted a directory with the same name as weight will appear in the vl_models directory')
+        help='path to a direcctory for the new model. if omitted a directory with the same name as weight will appear in the vl_models/pretrained directory')
     parser.add_argument('--image_key', '-d', type=str, default='filled_with_0',
         help='image key in the tsv file for the default image')
     parser.add_argument('--tsv', '-t', type=str, default=os.path.join(dir_name, 'test_obj36.tsv'),
@@ -271,6 +271,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     if args.output is None:
-        args.output = os.path.join(dir_name, os.path.basename(args.weight))
+        args.output = os.path.join(dir_name, 'pretrained', os.path.basename(args.weight))
     
     main(args)

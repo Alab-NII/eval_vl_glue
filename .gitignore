@@ -8,8 +8,14 @@ vl_models/*
 !vl_models/batch_convert.sh
 !vl_models/convert.py
 !vl_models/test_obj36.tsv
+!vl_models/pretrained
+!vl_models/finetuned
 download/volta_weights/*
 !download/volta_weights/.gitkeep
+vl_models/pretrained/*
+!vl_models/pretrained/.gitkeep
+vl_models/finetuned/*
+!vl_models/finetuned/.gitkeep
 
 # directory
 sandbox/
