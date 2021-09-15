@@ -3,10 +3,13 @@
 # model files
 resnet101_faster_rcnn_final_iter_320000.pt
 resnet101_faster_rcnn_final.pt
-conversion/hf_volta_models/*
-!conversion/hf_volta_models/*.gitkeep
-conversion/volta_models/*
-!conversion/volta_models/*.gitkeep
+vl_models/*
+!vl_models/README.md
+!vl_models/batch_convert.sh
+!vl_models/convert.py
+!vl_models/test_obj36.tsv
+download/volta_weights/*
+!download/volta_weights/.gitkeep
 
 # directory
 sandbox/

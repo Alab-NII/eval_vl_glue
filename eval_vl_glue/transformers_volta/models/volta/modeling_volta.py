@@ -1226,7 +1226,31 @@ class VoltaModel(VoltaPreTrainedModel):
         self.embeddings.word_embeddings = value
     
     #def _prune_heads(self, heads_to_prune):
-
+    
+    def set_default_image_feature(self, image_feature):
+        """
+        Set default image feature to an existing model.
+        Arguments:
+            model: a volta model
+            default_image_feature: a VoltaImageFeature
+        Returns
+            the given model
+        """
+        
+        target = self.dummy_input_imgs
+        # None means batch axis
+        x = image_feature.features.clone()[None]
+        assert x.shape == target.data.shape
+        target.data = x
+        
+        target = self.dummy_image_loc
+        # None means batch axis
+        x = image_feature.image_location.clone()[None]
+        assert x.shape == target.data.shape
+        target.data = x
+    
+        return self
+    
     #@add_start_docstrings_to_model_forward(VOLTA_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_start_docstrings_to_model_forward(VOLTA_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
