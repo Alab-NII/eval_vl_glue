@@ -77,7 +77,7 @@ class ProposalModule(object):
     def nms(self, proposals, scores, nms_thresh):
         
         # we add 1 to width and height to match py_cpu_nms
-        offset = torch.Tensor([[0, 0, 1, 1]], device=proposals.device).to(proposals.dtype)
+        offset = torch.tensor([[0, 0, 1, 1]], dtype=proposals.dtype, device=proposals.device)
         return torchvision.ops.nms(proposals + offset, scores, nms_thresh)
     
     def clip_boxes_to_image(self, proposals, image_shape):
@@ -94,10 +94,13 @@ class ProposalModule(object):
     @staticmethod
     def bbox_transform_inv(boxes, deltas):
         
-        if boxes.shape[0] == 0:
-            return torch.zeros((0, deltas.shape[1]), dtype=deltas.dtype)
+        dtype = deltas.dtype
+        device = boxes.device
         
-        boxes = boxes.to(deltas.dtype)
+        if boxes.shape[0] == 0:
+            return torch.zeros((0, deltas.shape[1]), dtype=deltas.dtype, device=device)
+        
+        boxes = boxes.to(dtype)
 
         widths = boxes[:, 2] - boxes[:, 0] + 1.0
         heights = boxes[:, 3] - boxes[:, 1] + 1.0
@@ -114,7 +117,7 @@ class ProposalModule(object):
         pred_w = torch.exp(dw) * widths[:, None]
         pred_h = torch.exp(dh) * heights[:, None]
 
-        pred_boxes = torch.zeros(deltas.shape, dtype=deltas.dtype)
+        pred_boxes = torch.zeros(deltas.shape, dtype=dtype, device=device)
         # x1, y1, x2, y2
         pred_boxes[:, 0::4] = pred_ctr_x - 0.5 * pred_w
         pred_boxes[:, 1::4] = pred_ctr_y - 0.5 * pred_h
@@ -188,9 +191,9 @@ class ProposalModule(object):
     
     def _propose_torch(self, rpn_cls_prob_reshape, rpn_bbox_pred, im_info):
         """
-        rpn_cls_prob_reshape: Tensor(batch_size, 2*num_anchors, height, width)
-        rpn_bbox_pred: Tensor(batch_size, 4*num_anchors, height, width)
-        im_info:  Tensor(batch_size, input_width, input_height, scale)
+        rpn_cls_prob_reshape: tensor(batch_size, 2*num_anchors, height, width)
+        rpn_bbox_pred: tensor(batch_size, 4*num_anchors, height, width)
+        im_info:  tensor(batch_size, input_width, input_height, scale)
         """
         # Currently batch_size is required to be 1
         # Algorithm:
@@ -211,6 +214,7 @@ class ProposalModule(object):
         nms_thresh = self.model_config.RPN_NMS_THRESH
         min_size = self.model_config.RPN_MIN_SIZE
         
+        device = rpn_cls_prob_reshape.device
         dtype = rpn_cls_prob_reshape.dtype
         height, width = rpn_cls_prob_reshape.shape[-2:]
         
@@ -227,7 +231,7 @@ class ProposalModule(object):
         shift_y = shift_y.ravel()
         shifts = torch.vstack((shift_x, shift_y, shift_x, shift_y)).permute(1, 0)
         
-        anchors = (self.anchors_base[None] + shifts[:, None]).reshape(-1, 4)
+        anchors = (self.anchors_base[None] + shifts[:, None]).reshape(-1, 4).to(device)
         
         # Transpose and reshape predicted bbox transformations to get them
         # into the same order as the anchors:
@@ -287,7 +291,7 @@ class ProposalModule(object):
         # Output rois blob
         # Our RPN implementation only supports a single input image, so all
         # batch inds are 0
-        batch_inds = torch.zeros((proposals.shape[0], 1), dtype=dtype)
+        batch_inds = torch.zeros((proposals.shape[0], 1), dtype=dtype, device=device)
         rois = torch.hstack((batch_inds, proposals.to(dtype)))
         
         return rois, scores
@@ -322,6 +326,7 @@ class BUTDDetector(torch.nn.Module):
             image_array -= pixel_means[None, None]
         # change the color channel to BGR order
         image_array = image_array[:,:,::-1]
+        old_height, old_width = image_array.shape[:2]
         
         if __CV2_RESIZE__:
             shape = image_array.shape
@@ -334,11 +339,11 @@ class BUTDDetector(torch.nn.Module):
             resized_image = cv2.resize(image_array, None, None, fx=scale, fy=scale,
                         interpolation=cv2.INTER_LINEAR)
             resized_image = resized_image.transpose(2, 0, 1)[None]
-            resized_image = torch.Tensor(resized_image.copy())
+            resized_image = torch.tensor(resized_image.copy())
         else:
             # change the shape to (1, 3, height, width)
             image_array = image_array.transpose(2, 0, 1)[None]
-            image_array = torch.Tensor(image_array.copy())
+            image_array = torch.tensor(image_array.copy())
     
             shape = image_array.shape
             size_min = min(shape[-2:])
@@ -353,7 +358,7 @@ class BUTDDetector(torch.nn.Module):
         
         new_height, new_width = resized_image.shape[-2:]
         # We use this size to know where are padded pixels in the resized tensor
-        image_info = torch.Tensor([[new_height, new_width, scale]])
+        image_info = torch.tensor([[new_height, new_width, scale, old_height, old_width]])
         return resized_image, image_info
     
     def detect(self, image, conf_thresh=0.2, min_boxes=36, max_boxes=36):
@@ -375,8 +380,12 @@ class BUTDDetector(torch.nn.Module):
         max_size = self.model_config.MAX_SIZE
         dedup_factor = self.model_config.DEDUP_BOXES
         use_deduplication = dedup_factor > 0 and not self.model_config.HAS_RPN
+        device = self.get_module_device()
         
         images, image_infos = self.convert_image_to_tensor(image, scale, max_size, self.pixel_means)
+        old_image_height, old_image_width = image_infos[0, -2:]
+        images = images.to(device)
+        image_infos = image_infos.to(device)
         
         if use_deduplication:
             # not used resnet101_faster_rcnn_final
@@ -400,7 +409,7 @@ class BUTDDetector(torch.nn.Module):
             num_boxes = boxes.shape[0]
             boxes = boxes[:, :, None].repeat(1, num_object_labels, 1).view(num_boxes, - 1)
             boxes = self.proposal.bbox_transform_inv(boxes, outputs['bbox_pred'])
-            boxes = self.proposal.clip_boxes_to_image(boxes, tuple(image_infos[0, :2] - 1))
+            boxes = self.proposal.clip_boxes_to_image(boxes, image_infos[0, :2])
             boxes = boxes.view(num_boxes, num_object_labels, 4)
         else:
             # Simply repeat the boxes, once for each class
@@ -412,7 +421,7 @@ class BUTDDetector(torch.nn.Module):
             pass
     
         # Keep only the best detections
-        max_conf = torch.zeros((boxes.shape[0],))
+        max_conf = torch.zeros((boxes.shape[0],), device=device, dtype=object_label_probs.dtype)
         for object_id in range(1, num_object_labels):
             object_label_score = object_label_probs[:, object_id]
             box = boxes[:, object_id]
@@ -441,8 +450,6 @@ class BUTDDetector(torch.nn.Module):
         # initialize DetectedRegion
         regions = []
         # the sizes of the original image (before resizing)
-        image_height = images.shape[2] / image_infos[:, 2]
-        image_width = images.shape[3] / image_infos[:, 2]
         for box, feature, object_label_prob, attribute_label_prob in zip(
             boxes[keep_boxes], 
             pool5_flat[keep_boxes],
@@ -452,8 +459,8 @@ class BUTDDetector(torch.nn.Module):
             object_label_id = np.argmax(object_label_prob[1:], axis=0) + 1
             attribute_label_id = np.argmax(attribute_label_prob[1:], axis=0) + 1
             regions.append(DetectedRegion(
-                image_height = image_height,
-                image_width = image_width,
+                image_height = old_image_height,
+                image_width = old_image_width,
                 box = box[object_label_id],
                 feature = feature,
                 object_label_id = object_label_id,
@@ -516,6 +523,10 @@ class BUTDDetector(torch.nn.Module):
         
         return outputs
     
+    def get_module_device(self):
+        # We assume that the entire module is on a GPU
+        return self.conv1.weight.device
+    
     def _check_model_config(self, model_config):
         
         assert len(model_config.IMAGE_SCALES) == 1, \
@@ -545,7 +556,7 @@ class BUTDDetector(torch.nn.Module):
             model_config = ModelConfig()
         self._check_model_config(model_config)
         self.model_config = model_config
-        self.pixel_means = torch.Tensor(self.model_config.PIXEL_MEANS)
+        self.pixel_means = torch.tensor(self.model_config.PIXEL_MEANS)
         
         self.object_vocab = self._local_vocab(
             self.model_config.objects_vocab_path, ['__background__']

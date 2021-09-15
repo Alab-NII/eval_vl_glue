@@ -1,4 +1,5 @@
 # coding: utf-8
+# Feature holder class and its utilities.
 
 
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ import numpy as np
 @dataclass
 class VoltaImageFeature:
     
+    add_global_image_feature: str
+    add_area: bool
     num_boxes: int
     image_location_ori: torch.Tensor
     image_location: torch.Tensor
@@ -34,7 +37,7 @@ class VoltaImageFeature:
         boxes = np.asarray([region.box for region in regions])
         features = np.asarray([region.feature for region in regions])
         
-        return VoltaImageFeature.convert_to_tensor(
+        return VoltaImageFeature._convert_to_tensor(
             image_h, image_w, boxes, features, add_area, add_global_image_feature
         )
         
@@ -52,17 +55,16 @@ class VoltaImageFeature:
         """        
         image_h = int(detection["img_h"])
         image_w = int(detection["img_w"])
-        boxes = np.frombuffer(base64.b64decode(detection['boxes']), dtype=np.float32).view(-1, 4)
+        boxes = detection['boxes'].reshape(-1, 4)
         num_boxes = boxes.shape[0]
-        features = np.frombuffer(base64.b64decode(detection["features"]), 
-                             dtype=np.float32).view(num_boxes, self.feature_size)
+        features = detection["features"].reshape(num_boxes, -1)
         
-        return VoltaImageFeature.convert_to_tensor(
+        return VoltaImageFeature._convert_to_tensor(
             image_h, image_w, boxes, features, add_area, add_global_image_feature
         )
         
     @staticmethod
-    def convert_to_tensor(image_h, image_w, boxes, features, 
+    def _convert_to_tensor(image_h, image_w, boxes, features, 
                           add_area=True, add_global_image_feature='first'):
         
         num_boxes = boxes.shape[0]
@@ -107,8 +109,53 @@ class VoltaImageFeature:
                 image_location = np.concatenate([image_location, g_location], axis=0)
         
         return VoltaImageFeature(
+            add_global_image_feature = add_global_image_feature,
+            add_area = add_area,
             num_boxes = num_boxes,
             image_location_ori = torch.Tensor(image_location_ori),
             image_location = torch.Tensor(image_location),
             features = torch.Tensor(features),
         )
+    
+
+# Utilities for detection tsv files
+TSV_FIELD_DEF = [
+    ("img_id", 'str'), 
+    ("img_h", 'int'),
+    ("img_w", 'int'),
+    ("objects_id", 'np.int64'),
+    ("objects_conf", 'np.float32'),
+    ("attrs_id", 'np.int64'),
+    ("attrs_conf", 'np.float32'),
+    ("num_boxes", 'int'),
+    ("boxes", 'np.float32'),
+    ("features", 'np.float32'),
+]
+
+
+def load_tsv(tsv_path):
+    """
+    Load a TSV file made by the extract_coco.py script.
+    Returns a dict whose keys are img_id and 
+        values are detection results (dict)
+    """
+    def _decode(field_type, val):
+        if field_type == 'int':
+            return int(val)
+        if field_type.startswith('np.'):
+            val = np.frombuffer(
+                base64.b64decode(val.encode('ascii')), 
+                dtype=np.dtype(field_type[3:])
+            )
+            if field_type == 'np.int64':
+                val = val + 1
+                # +1 accounts for the __background__ class id
+            return val
+        return val
+
+    feature_dict = {}
+    with open(tsv_path, 'r') as f:
+        for line in f.readlines():
+            row = {d[0]: _decode(d[1], v) for d, v in zip(TSV_FIELD_DEF, line.split('\t'))}
+            feature_dict[row['img_id']] = row
+    return feature_dict
