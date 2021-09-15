@@ -5,13 +5,10 @@
 # torchvision
 numpy
 
-# required when  you use jupyter notebook
-# You might need "jupyter nbextension enable --py widgetsnbextension"
-# notebook
-# ipywidgets
-
 # extractor
+# Although we enumerate Pillow and cv2, either cv2 or Pillow is enough.
 Pillow
+cv2
 
 # transformer_volta
 tqdm
@@ -19,3 +16,8 @@ regex!=2019.12.17
 sacremoses
 requests
 filelock
+
+# evaluation
+datasets
+scipy
+sklearn

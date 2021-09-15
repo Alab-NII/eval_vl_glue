@@ -1,11 +1,15 @@
 #!/bin/bash
 
-python vl_models/convert.py -c download/config/ctrl_visualbert_base.json -w download/volta_weights/ctrl_visual_bert
+WEIGHTS_DIR=download/volta_weights
+CONFIG_DIR=download/volta_config
+SCRIPT_PATH=vl_models/convert.py
 
-python vl_models/convert.py -c download/config/ctrl_uniter_base.json -w download/volta_weights/ctrl_uniter
+python $SCRIPT_PATH -c $CONFIG_DIR/ctrl_visualbert_base.json -w $WEIGHTS_DIR/ctrl_visual_bert
 
-python vl_models/convert.py -c download/config/ctrl_vl-bert_base.json -w download/volta_weights/ctrl_vl_bert
+python $SCRIPT_PATH -c $CONFIG_DIR/ctrl_uniter_base.json -w  $WEIGHTS_DIR/ctrl_uniter
 
-python vl_models/convert.py -c download/config/ctrl_lxmert.json -w download/volta_weights/ctrl_lexmert
+python $SCRIPT_PATH -c $CONFIG_DIR/ctrl_vl-bert_base.json -w  $WEIGHTS_DIR/ctrl_vl_bert
 
-python vl_models/convert.py -c download/config/ctrl_vilbert_base.json -w download/volta_weights/ctrl_vilbert
+python $SCRIPT_PATH -c $CONFIG_DIR/ctrl_lxmert.json -w  $WEIGHTS_DIR/ctrl_lxmert
+
+python $SCRIPT_PATH -c $CONFIG_DIR/ctrl_vilbert_base.json -w  $WEIGHTS_DIR/ctrl_vilbert
