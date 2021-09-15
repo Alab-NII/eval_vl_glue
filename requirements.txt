@@ -1,6 +1,6 @@
 # global
 # Please install torch and torchvision 
-# with an appropriate version for your environment mannually
+#     with an appropriate version for your environment mannually
 # torch
 # torchvision
 numpy
