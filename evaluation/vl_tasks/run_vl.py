@@ -13,7 +13,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# You can also adapt this script on your own text classification task. Pointers for this are left as comments.
+# 
+# Here, we adapted run_glue.py for V&L datasets.
 
 import logging
 import os
@@ -24,6 +25,8 @@ from typing import Optional
 
 import numpy as np
 from datasets import load_dataset, load_metric
+# We will load spedific V&L datasets when determined which dataset is used.
+import importlib
 
 from eval_vl_glue import transformers_volta as transformers
 from eval_vl_glue.transformers_volta import (
@@ -41,9 +44,6 @@ from eval_vl_glue.transformers_volta import (
 )
 from eval_vl_glue.transformers_volta.trainer_utils import get_last_checkpoint, is_main_process
 
-sys.path.append(os.path.dirname(__file__))
-from dataset_nlvr2 import load_dataset_vl
-
 # For CustomTrainer Class
 import time
 import collections
@@ -57,22 +57,14 @@ from eval_vl_glue.transformers_volta.modeling_utils import PreTrainedModel
 from eval_vl_glue.transformers_volta.trainer_utils import EvalPrediction, speed_metrics
 from eval_vl_glue.transformers_volta.trainer_callback import TrainerCallback, ProgressCallback
 
-
-task_to_keys = {
-    "cola": ("sentence", None),
-    "mnli": ("premise", "hypothesis"),
-    "mrpc": ("sentence1", "sentence2"),
-    "qnli": ("question", "sentence"),
-    "qqp": ("question1", "question2"),
-    "rte": ("sentence1", "sentence2"),
-    "sst2": ("sentence", None),
-    "stsb": ("sentence1", "sentence2"),
-    "wnli": ("sentence1", "sentence2"),
-}
-
+# setup for datasets
 vl_task_to_keys = {
     "nlvr2": ("sentence", None),
 }
+custom_auto_config_kwargs = {
+    "nlvr2": {'num_images':2, 'classifier_dims':[1536]}
+}
+requires_formatter = True
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +79,7 @@ class DataTrainingArguments:
     the command line.
     """
     
-    defined_tasks = list(task_to_keys.keys()) + list(vl_task_to_keys.keys())
+    defined_tasks = list(vl_task_to_keys.keys())
     
     task_name: Optional[str] = field(
         default=None,
@@ -142,8 +134,6 @@ class DataTrainingArguments:
             task_source = None
             if self.task_name is None:
                 task_source = 'custom'
-            elif self.task_name in task_to_keys.keys():
-                task_source = 'glue'
             elif self.task_name in vl_task_to_keys.keys():
                 task_source = 'vl'
             else:
@@ -338,7 +328,7 @@ def main():
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     
-    # forcr arguments
+    # To keep columns of image ids
     training_args.remove_unused_columns = False
     
     # Detecting last checkpoint.
@@ -379,23 +369,11 @@ def main():
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
-    # Get the datasets: you can either provide your own CSV/JSON training and evaluation files (see below)
-    # or specify a GLUE benchmark task (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use as labels the column called 'label' and as pair of sentences the
-    # sentences in columns called 'sentence1' and 'sentence2' if such column exists or the first two columns not named
-    # label if at least two columns are provided.
-    #
-    # If the CSVs/JSONs contain only one non-label column, the script does single sentence classification on this
-    # single column. You can easily tweak this behavior (see below)
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
-    if data_args.task_source == 'glue':
-        # Downloading and loading a dataset from the hub.
-        datasets = load_dataset("glue", data_args.task_name)
-    elif data_args.task_source == 'vl':
-        datasets = load_dataset_vl(dataset_dir=data_args.task_dir)
+    # Load dataset
+    if data_args.task_source == 'vl':
+        sys.path.append(os.path.dirname(__file__))
+        m = importlib.import_module(f'dataset_{data_args.task_name}')
+        datasets = m.load_dataset_vl(dataset_dir=data_args.task_dir)
     else:
         # Loading a dataset from your local files.
         # CSV/JSON training and evaluation files are needed.
@@ -426,25 +404,17 @@ def main():
     # See more about loading any type of standard or custom dataset at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
-    # Labels
-    if data_args.task_source == 'glue':
-        is_regression = data_args.task_name == "stsb"
-        if not is_regression:
-            label_list = datasets["train"].features["label"].names
-            num_labels = len(label_list)
-        else:
-            num_labels = 1
+    # Set class labels
+    # Trying to have good defaults here, don't hesitate to tweak to your needs.
+    is_regression = datasets["train"].features["label"].dtype in ["float32", "float64"]
+    if is_regression:
+        num_labels = 1
     else:
-        # Trying to have good defaults here, don't hesitate to tweak to your needs.
-        is_regression = datasets["train"].features["label"].dtype in ["float32", "float64"]
-        if is_regression:
-            num_labels = 1
-        else:
-            # A useful fast method:
-            # https://huggingface.co/docs/datasets/package_reference/main_classes.html#datasets.Dataset.unique
-            label_list = datasets["train"].unique("label")
-            label_list.sort()  # Let's sort it for determinism
-            num_labels = len(label_list)
+        # A useful fast method:
+        # https://huggingface.co/docs/datasets/package_reference/main_classes.html#datasets.Dataset.unique
+        label_list = datasets["train"].unique("label")
+        label_list.sort()  # Let's sort it for determinism
+        num_labels = len(label_list)
         
     # Load pretrained model and tokenizer
     #
@@ -457,14 +427,14 @@ def main():
         'revision': model_args.model_revision,
         'use_auth_token': True if model_args.use_auth_token else None,
     }
-    if data_args.task_name == 'nlvr2':
-        auto_config_kwargs['num_images'] = 2
-        auto_config_kwargs['classifier_dims'] = [1536]
+    auto_config_kwargs.update(custom_auto_config_kwargs.get(data_args.task_name, {}))
+    
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
         **auto_config_kwargs,
     )
     del auto_config_kwargs
+    
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -472,6 +442,7 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+    
     model = AutoModelForSequenceClassification.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
@@ -482,9 +453,7 @@ def main():
     )
     
     # Preprocessing the datasets
-    if data_args.task_source == 'glue':
-        sentence1_key, sentence2_key = task_to_keys[data_args.task_name]
-    elif data_args.task_source == 'vl':
+    if data_args.task_source == 'vl':
         sentence1_key, sentence2_key = vl_task_to_keys[data_args.task_name]
     else:
         # Again, we try to have some nice defaults but don't hesitate to tweak to your use case.
@@ -546,43 +515,24 @@ def main():
     datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
     
     # post processing after mapping
-    if data_args.task_name == 'nlvr2':
+    if requires_formatter:
         datasets.set_format(type='image_feature', model_config=config, dataset_dir=data_args.task_dir)
     
     train_dataset = datasets["train"]
-    
-    if data_args.task_name == "mnli":
-        eval_dataset = collections.OrderedDict([('', datasets["validation_matched"]), ('mm', datasets['validation_mismatched'])])
-    else:
-        eval_dataset = datasets["validation"]
-   
+    eval_dataset = datasets["validation"]
     if data_args.task_name is not None or data_args.test_file is not None:
-        if data_args.task_name == "mnli":
-            test_dataset = collections.OrderedDict([('', datasets["test_matched"]), ('mm', datasets['test_mismatched'])])
-        else:
-            test_dataset = datasets["test"]
+        test_dataset = datasets["test"]
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 3):
         logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
-
-    # Get the metric function
-    if data_args.task_source == 'glue':
-        metric = load_metric("glue", data_args.task_name)
-    # TODO: When datasets metrics include regular accuracy, make an else here and remove special branch from
-    # compute_metrics
-
+        
     # You can define your custom compute_metrics function. It takes an `EvalPrediction` object (a namedtuple with a
     # predictions and label_ids field) and has to return a dictionary string to float.
     def compute_metrics(p: EvalPrediction):
         preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
         preds = np.squeeze(preds) if is_regression else np.argmax(preds, axis=1)
-        if data_args.task_name == 'glue':
-            result = metric.compute(predictions=preds, references=p.label_ids)
-            if len(result) > 1:
-                result["combined_score"] = np.mean(list(result.values())).item()
-            return result
-        elif is_regression:
+        if is_regression:
             return {"mse": ((preds - p.label_ids) ** 2).mean().item()}
         else:
             return {"accuracy": (preds == p.label_ids).astype(np.float32).mean().item()}
@@ -639,9 +589,6 @@ def main():
         # Loop to handle MNLI double evaluation (matched, mis-matched)
         tasks = [data_args.task_name]
         test_datasets = [test_dataset]
-        if data_args.task_name == "mnli":
-            tasks.append("mnli-mm")
-            test_datasets.append(datasets["test_mismatched"])
 
         for test_dataset, task in zip(test_datasets, tasks):
             # Removing the `label` columns because it contains -1 and Trainer won't like that.
