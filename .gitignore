@@ -10,6 +10,7 @@ vl_models/*
 !vl_models/test_obj36.tsv
 !vl_models/pretrained
 !vl_models/finetuned
+download/nlvr2
 download/volta_weights/*
 !download/volta_weights/.gitkeep
 vl_models/pretrained/*

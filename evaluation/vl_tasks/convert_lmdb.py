@@ -1,4 +1,10 @@
 # conding: utf-8
+#
+# Convert lmdb to pickle files.
+# This script converts the preprocesed lmdb by e-bug to a pickle files.
+# Sub-directories that correspond to splits are created in the destionation directory
+# and pickle files will be placed in their split.
+# We decided to use pickle files because loading lmdb was slow in our environment.
 
 
 import lmdb
@@ -7,10 +13,14 @@ import os
 import tqdm
 import numpy as np
 
-from eval_vl_glue import VoltaImageFeature, _decode_tsv_item
+from eval_vl_glue import _decode_tsv_item
 
+default_fields = [
+    "img_id", "img_h", "img_w", "objects_id", "objects_conf",
+    "attrs_id", "attrs_conf", "num_boxes", "boxes", "features",
+]
 
-# Get split from key
+# Get a split and file name from a key
 # Given a key of lmdb
 # Expected to return a split name and a file name
 # Current version is for nlvr2
@@ -20,24 +30,19 @@ def nlvr2_get_split_and_file_name(key):
 
 
 # Feature compiler
-# Given an item object of lmdb
+# Given an item object of lmdb and fields to be kept
 # Expected to return an object, which will be pickled to save
 # Current version is for nlvr2
-def nlvr2_feature_compiler(item):
+def nlvr2_feature_compiler(item, fields):
     
     item = _decode_tsv_item(item)
-    feature = VoltaImageFeature.from_dict(item)
-    outputs = (
-        feature.add_global_image_feature,
-        feature.add_area,
-        feature.num_boxes,
-        feature.image_location.numpy(),
-        feature.features.numpy(),
-    )
-    return outputs
+    return {k:v for k, v in item.items() if k in fields}
 
 
-def convert(src_dir_path, dest_dir_path, get_split_and_file_name, feature_compiler, max_num=None):
+def convert(
+        src_dir_path, dest_dir_path, 
+        get_split_and_file_name, feature_compiler, fields, max_num=None
+    ):
     """
     Make the pickle files of image features from the lmdb file in src_dir_path.
     Pickled files are placed in sub-directries that made according to the keys of the lmdb.
@@ -68,7 +73,7 @@ def convert(src_dir_path, dest_dir_path, get_split_and_file_name, feature_compil
             
             # read main content
             item = pickle.loads(txn.get(key))
-            item = feature_compiler(item)
+            item = feature_compiler(item, fields)
             
             # save
             if not os.path.exists(dirpath):
@@ -85,11 +90,13 @@ if __name__ == '__main__':
         help='path to the src lmdb directory')
     parser.add_argument('--dest', '-d', required=True, type=str,
         help='path to the dest directory')
+    parser.add_argument('--fields', '-f', default=','.join(default_fields), type=str,
+        help='field to be kept; comma splitted.')
     args = parser.parse_args()
     
     get_split_and_file_name = nlvr2_get_split_and_file_name
     feature_compiler = nlvr2_feature_compiler
 
     print('start')
-    convert(args.src, args.dest, get_split_and_file_name, feature_compiler, max_num=100)
+    convert(args.src, args.dest, get_split_and_file_name, feature_compiler, args.fields)
     print('end')

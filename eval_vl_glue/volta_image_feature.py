@@ -20,7 +20,7 @@ class VoltaImageFeature:
     features: torch.Tensor
     
     @staticmethod
-    def from_regions(regions,  add_area=True, add_global_image_feature='first'):
+    def from_regions(regions, add_area=True, add_global_image_feature='first'):
         """
         Converts a detection result () on an image into tensors.
         Arguments:

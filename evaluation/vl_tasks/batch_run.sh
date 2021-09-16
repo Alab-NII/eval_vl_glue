@@ -6,7 +6,7 @@
 
 # Settings
 # - Tasks to be used
-tasks="stsb mrpc cola wnli sst2 qnli rte qqp mnli"
+tasks="nlvr2"
 
 # - Models to be trained
 pt_models="ctrl_lxmert_base ctrl_uniter_base ctrl_vilbert_base ctrl_visual_bert_base ctrl_vl_bert_base"
@@ -17,13 +17,14 @@ models="$pt_models $reinit_models"
 prefixes="0 1 2"
 
 # Debug settings
-tasks="cola"
+tasks="nlvr2"
 models="ctrl_lxmert"
 prefixes="0"
 
 # Directories
 pretrained_models_dir="vl_models/pretrained"
-output_dir_base="vl_models/finetuned"
+output_dir_base="vl_models/vl_finetuned"
+task_dir_base="download"
 mkdir -p $output_dir_base
 
 for prefix in $prefixes ; do
@@ -35,9 +36,10 @@ for prefix in $prefixes ; do
             model_path="$pretrained_models_dir/$model"
             
             echo "$prefix $task_name $model > $output_dir"
-            python -u evaluation/run_glue.py \
+            python -u evaluation/vl_tasks/run_vl.py \
                 --model_name_or_path "$model_path" \
                 --task_name "$task_name" \
+                --task_dir "$task_dir_base/$task_name" \
                 --do_train \
                 --do_eval \
                 --evaluation_strategy epoch \
