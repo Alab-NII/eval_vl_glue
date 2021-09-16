@@ -320,6 +320,40 @@ class VoltaVLPreTrainingHeads(nn.Module):
         return prediction_scores_t, prediction_scores_v_dict, seq_relationship_score, pooled_output
 
 
+class SimpleClassifier(nn.Module):
+    """
+    Multi-layered Perceptron with GELU activation
+    If hidden_dims is [], this is identical to a simple linear layer.
+    """
+    def __init__(self, in_dim, hidden_dims, out_dim):
+        super().__init__()
+        
+        layers = []
+        last_dim = in_dim
+        for d in hidden_dims:
+            layers.append(nn.Linear(last_dim, d))
+            layers.append(nn.GELU())
+            layers.append(FusedLayerNorm(d, eps=1e-12))
+            last_dim = d
+        layers.append(nn.Linear(last_dim, out_dim))
+        self.logit_fc = nn.Sequential(*layers)
+        self.apply(self.init_weights)
+    
+    def init_weights(self, module):
+        """ Initialize the weights.
+        """
+        if isinstance(module, nn.Linear):
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, FusedLayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+    
+    def forward(self, hidden_states):
+        return self.logit_fc(hidden_states)
+
+
 class VoltaEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
     """
@@ -1298,7 +1332,7 @@ VOLTA_INPUTS_DOCSTRING = r"""(not provided)"""
 
 
 @add_start_docstrings(
-    "The bare Bert Model transformer outputting raw hidden-states without any specific head on top.",
+    "The bare Volta Model transformer outputting raw hidden-states without any specific head on top.",
     VOLTA_START_DOCSTRING,
 )
 class VoltaModel(VoltaPreTrainedModel):
@@ -1613,7 +1647,7 @@ class VoltaForVLPreTraining(VoltaPreTrainedModel):
             return prediction_scores_t, prediction_scores_v_dict, seq_relationship_score, all_attention_mask, pooled_output
 
     
-@add_start_docstrings("""Bert Model with a `language modeling` head on top. """, VOLTA_START_DOCSTRING)
+@add_start_docstrings("""Volta Model with a `language modeling` head on top. """, VOLTA_START_DOCSTRING)
 class VoltaForMaskedLM(VoltaPreTrainedModel):
 
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
@@ -1621,7 +1655,9 @@ class VoltaForMaskedLM(VoltaPreTrainedModel):
 
     def __init__(self, config):
         super().__init__(config)
-
+        
+        assert config.num_images == 1, 'VoltaForMaskedLM not support multiple images'
+        
         if config.is_decoder:
             raise RuntimeError('Volta currently support only encoder')
         
@@ -1731,7 +1767,7 @@ class VoltaForMaskedLM(VoltaPreTrainedModel):
 
 @add_start_docstrings(
     """
-    Bert Model transformer with a sequence classification/regression head on top (a linear layer on top of the pooled
+    Volta Model transformer with a sequence classification/regression head on top (a linear layer on top of the pooled
     output) e.g. for GLUE tasks.
     """,
     VOLTA_START_DOCSTRING,
@@ -1743,16 +1779,48 @@ class VoltaForSequenceClassification(VoltaPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         
+        self.num_images = config.num_images
         self.num_labels = config.num_labels
         self.fusion_method = config.fusion_method
         assert self.fusion_method in self.all_fusion_methods, 'fusion_method should be in %s' % self.all_fusion_methods
         
         self.volta = VoltaModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.classifier = nn.Linear(config.pooler_size, config.num_labels)
+        
+        if config.classifier_dims:
+            self.classifier = SimpleClassifier(
+                self.num_images*config.pooler_size, 
+                config.classifier_dims, 
+                config.num_labels
+            )
+        else:
+            self.classifier = nn.Linear(self.num_images*config.pooler_size, config.num_labels)
 
         self.init_weights()
-
+    
+    def _shape_mb(self, t, k, requires_repeat=False):
+        """Change the tensor shape for multiple images.
+        This module assumes that multiple images are input by concatenating their feature sequences.
+        For example, if the sequence length is 36 for an image and num_images are 2, 
+        the shape of input_images is expected to be (mb_size, 36*2, feature_dim).
+        This function, with requires_repeat=False, changes the shape to (mb_size*2, 36, feature_dim) by increasing mb_size.
+        And when requires_repeat is True, this function changes the shape by simply repeating the input tensor along the second axis.
+        Requires_repeat is used for non-visual inputs that corresponds each multiple image.
+        Arguments:
+            t: input tensor,
+            k: the number of images
+            requires_repeat: if set True, the input tensor will repeats to match minibatch size.
+        Returns:
+            shaped tensor
+        """
+        if requires_repeat:
+            t = t.repeat(*((1, k)+(1,)*(len(t.shape)-2)))
+        
+        src_shape = t.shape
+        dest_shape = (src_shape[0]*k, src_shape[1]//k) + src_shape[2:]
+        
+        return t.view(*dest_shape)
+    
     #@add_start_docstrings_to_model_forward(VOLTA_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_start_docstrings_to_model_forward(VOLTA_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(
@@ -1784,7 +1852,22 @@ class VoltaForSequenceClassification(VoltaPreTrainedModel):
             If :obj:`config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
+        
+        # Reshape minibatch for multiple images
+        if self.num_images > 1:
+            # vision context
+            input_images = self._shape_mb(input_images, self.num_images, requires_repeat=False)
+            image_loc = self._shape_mb(image_loc, self.num_images, requires_repeat=False)
+            if image_attention_mask is not None:
+                image_attention_mask = self._shape_mb(image_attention_mask, self.num_images, requires_repeat=False)
+            
+            # language context
+            input_ids = self._shape_mb(input_ids, self.num_images, requires_repeat=True)
+            if attention_mask is not None:
+                attention_mask = self._shape_mb(attention_mask, self.num_images, requires_repeat=True)
+            if token_type_ids is not None:
+                token_type_ids = self._shape_mb(token_type_ids, self.num_images, requires_repeat=True)
+        
         outputs = self.volta(
             input_ids,
             input_images=input_images,
@@ -1813,6 +1896,10 @@ class VoltaForSequenceClassification(VoltaPreTrainedModel):
             pooler_output = pooler_output_l 
         elif self.fusion_method == "none":
             pooler_output = None
+        
+        # Reunify divided information by reshape mb_size and dim axes.
+        if self.num_images > 1:
+            pooler_output = pooler_output.view(-1, pooler_output.size(1) * self.num_images)
         
         pooler_output = self.dropout(pooler_output)
         logits = self.classifier(pooler_output)

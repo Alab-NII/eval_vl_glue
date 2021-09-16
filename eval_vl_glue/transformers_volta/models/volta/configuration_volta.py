@@ -156,6 +156,8 @@ class VoltaConfig(PretrainedConfig):
         bert_layer2attn_sublayer={},
         bert_layer2ff_sublayer={},
         default_num_boxes=36,
+        num_images=1,
+        classifier_dims=[],
         **kwargs
     ):
         super().__init__(pad_token_id=pad_token_id, **kwargs)
@@ -221,5 +223,6 @@ class VoltaConfig(PretrainedConfig):
         # Fine-tuning
         #self.clf_hidden_size = clf_hidden_size
         self.visualization = visualization
-        self.default_num_boxes = 36
-        
+        self.default_num_boxes = default_num_boxes
+        self.num_images = num_images
+        self.classifier_dims = classifier_dims

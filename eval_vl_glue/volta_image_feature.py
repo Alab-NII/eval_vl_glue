@@ -119,7 +119,11 @@ class VoltaImageFeature:
     
 
 # Utilities for detection tsv files
-TSV_FIELD_DEF = [
+TSV_FIELDS = [
+    "img_id", "img_h", "img_w", "objects_id", "objects_conf",
+    "attrs_id", "attrs_conf", "num_boxes", "boxes", "features",
+]
+TSV_FIELD_TYPE = dict([
     ("img_id", 'str'), 
     ("img_h", 'int'),
     ("img_w", 'int'),
@@ -130,7 +134,32 @@ TSV_FIELD_DEF = [
     ("num_boxes", 'int'),
     ("boxes", 'np.float32'),
     ("features", 'np.float32'),
-]
+])
+
+
+def _decode_tsv_item(item_dict):
+    
+    new_dict = {}
+    for key in item_dict.keys():
+    
+        field_type = TSV_FIELD_TYPE.get(key, '')
+        # we pass values directly when TSV_FIELD_TYPE do not have their keys
+        val = item_dict[key]
+        
+        if field_type == 'int':
+            val = int(val)
+        
+        if field_type.startswith('np.'):
+            dtype = np.dtype(field_type[3:])
+            if isinstance(val, str):
+                val = val.encode('ascii')
+            val = np.frombuffer(base64.b64decode(val), dtype=dtype)
+            if field_type == 'np.int64':
+                val = val + 1
+                # +1 accounts for the __background__ class id
+        new_dict[key] = val
+    
+    return new_dict
 
 
 def load_tsv(tsv_path):
@@ -139,23 +168,10 @@ def load_tsv(tsv_path):
     Returns a dict whose keys are img_id and 
         values are detection results (dict)
     """
-    def _decode(field_type, val):
-        if field_type == 'int':
-            return int(val)
-        if field_type.startswith('np.'):
-            val = np.frombuffer(
-                base64.b64decode(val.encode('ascii')), 
-                dtype=np.dtype(field_type[3:])
-            )
-            if field_type == 'np.int64':
-                val = val + 1
-                # +1 accounts for the __background__ class id
-            return val
-        return val
-
+    
     feature_dict = {}
     with open(tsv_path, 'r') as f:
         for line in f.readlines():
-            row = {d[0]: _decode(d[1], v) for d, v in zip(TSV_FIELD_DEF, line.split('\t'))}
+            row = _decode_tsv_item(dict(zip(TSV_FIELDS, line.split('\t'))))
             feature_dict[row['img_id']] = row
     return feature_dict
