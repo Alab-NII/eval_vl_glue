@@ -38,10 +38,10 @@ _import_structure = {
 if is_torch_available():
     _import_structure["modeling_volta"] = [
         "VOLTA_PRETRAINED_MODEL_ARCHIVE_LIST",
-        #"VoltaForMaskedLM",
+        "VoltaForMaskedLM",
         #"VoltaForMultipleChoice",
         #"VoltaForNextSentencePrediction",
-        #"VoltaForPreTraining",
+        "VoltaForVLPreTraining",
         #"VoltaForQuestionAnswering",
         "VoltaForSequenceClassification",
         #"VoltaForTokenClassification",
@@ -83,10 +83,10 @@ if TYPE_CHECKING:
     if is_torch_available():
         from .modeling_volta import (
             VOLTA_PRETRAINED_MODEL_ARCHIVE_LIST,
-            #VoltaForMaskedLM,
+            VoltaForMaskedLM,
             #VoltaForMultipleChoice,
             #VoltaForNextSentencePrediction,
-            #VoltaForPreTraining,
+            VoltaForVLPreTraining,
             #VoltaForQuestionAnswering,
             VoltaForSequenceClassification,
             #VoltaForTokenClassification,

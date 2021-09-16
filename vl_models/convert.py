@@ -38,10 +38,10 @@ def make_model(config_path, weight_path, output_path, default_image_feature=None
     )
     
     # Model
-    model = transformers_volta.models.volta.VoltaModel(config)
+    model = transformers_volta.models.volta.VoltaForVLPreTraining(config)
     model = transfer_from(torch.load(weight_path), model)
     if default_image_feature:
-        model.set_default_image_feature(default_image_feature)
+        model.volta.set_default_image_feature(default_image_feature)
         print('default_image_feature was set.')
     
     # Save them in a model directory
@@ -75,10 +75,11 @@ def make_reinit_model(base_model_path, output_path, default_image_feature=None):
     tokenizer = transformers_volta.models.volta.VoltaTokenizer.from_pretrained(base_model_path)
     
     # Model
-    model = transformers_volta.models.volta.VoltaModel(config)
+    # Make a new volta model and transfer bert's weights
+    model = transformers_volta.models.volta.VoltaForVLPreTraining(config)
     model = transfer_from(grand_model, model)
     if default_image_feature:
-        model.set_default_image_feature(default_image_feature)
+        model.volta.set_default_image_feature(default_image_feature)
         print('default_image_feature was set.')
     
     os.makedirs(output_path)
@@ -99,7 +100,7 @@ def transfer_from(src_state_dict_or_bert_name, target_model, output_loading_info
     """
     
     if isinstance(src_state_dict_or_bert_name, str):
-        src_model = transformers_volta.AutoModel.from_pretrained(src_state_dict_or_bert_name)
+        src_model = transformers_volta.AutoModelForPreTraining.from_pretrained(src_state_dict_or_bert_name)
         state_dict = src_model.state_dict()
         from_bert = True
     else:
@@ -124,7 +125,7 @@ def transfer_from(src_state_dict_or_bert_name, target_model, output_loading_info
     for old_key, new_key in zip(old_keys, new_keys):
         print('weight mapping', old_key, '->', new_key)
         state_dict[new_key] = state_dict.pop(old_key)
-
+    
     # Rename Bert parameters for our framework
     # NB: Assume 1 Bert layer is mapped to 1 layer only (cannot be used to init multiple layers)
     old_keys = []
@@ -147,16 +148,28 @@ def transfer_from(src_state_dict_or_bert_name, target_model, output_loading_info
             old_keys.append(key)
             new_keys.append(new_key)
             nums.append(num)
-    
     for old_key, new_key, _ in sorted(zip(old_keys, new_keys, nums), key=lambda x: x[2], reverse=True):
         print('weight mapping', old_key, '->', new_key)
         state_dict[new_key] = state_dict.pop(old_key)
-
+    
+    # Finally,  we assume that bert in the root module is expected to be treated as volta
+    old_keys = []
+    new_keys = []
+    for key in state_dict.keys():
+        if key.startswith('bert.'):
+            new_key = key.replace('bert.', 'volta.', 1)
+            old_keys.append(key)
+            new_keys.append(new_key)
+    for old_key, new_key in zip(old_keys, new_keys):
+        print('weight mapping', old_key, '->', new_key)
+        state_dict[new_key] = state_dict.pop(old_key)
+    
     # Load from a PyTorch state_dict
     missing_keys = []
     unexpected_keys = []
     error_msgs = []
-    # copy state_dict so _load_from_state_dict can modify it
+    
+    # copy state_dict so that _load_from_state_dict can modify it
     metadata = getattr(state_dict, "_metadata", None)
     state_dict = state_dict.copy()
     if metadata is not None:
@@ -175,7 +188,7 @@ def transfer_from(src_state_dict_or_bert_name, target_model, output_loading_info
     start_prefix = ""
     model_to_load = target_model
     base_model_prefixes = [cls.base_model_prefix] if hasattr(target_model, cls.base_model_prefix) else []
-    base_model_prefixes.append('bert')
+    base_model_prefixes.extend(['bert'])
     for base_model_prefix in base_model_prefixes:
         model_has_base_model = hasattr(target_model, base_model_prefix)
         base_model_in_state_dict = any(s.startswith(base_model_prefix) for s in state_dict.keys())
@@ -187,17 +200,27 @@ def transfer_from(src_state_dict_or_bert_name, target_model, output_loading_info
             break
     print('start_prefix', start_prefix, 'model_to_load', model_to_load.__class__.__name__)
     
+    # Temporal change of the number of type embeddings to match BERT
     original_type_vocab_size = model_to_load.config.type_vocab_size
+    type_vocab_target = None
     if original_type_vocab_size != 2 and from_bert:
-        model_to_load.embeddings.token_type_embeddings = \
-            model_to_load._get_resized_embeddings(model_to_load.embeddings.token_type_embeddings, 2)
+        type_vocab_target = model_to_load
+        if not hasattr(type_vocab_target, 'embeddings'):
+            type_vocab_target = type_vocab_target.volta 
+        type_vocab_target.embeddings.token_type_embeddings = \
+                type_vocab_target._get_resized_embeddings(
+                    type_vocab_target.embeddings.token_type_embeddings, 2
+                )
     
     # load the weight to the model_to_load module
     load(model_to_load, prefix=start_prefix)
     
-    if original_type_vocab_size != 2 and from_bert:
-        model_to_load.embeddings.token_type_embeddings = \
-            model_to_load._get_resized_embeddings(model_to_load.embeddings.token_type_embeddings, original_type_vocab_size)
+    # Back the original number of type embeddings
+    if type_vocab_target is not None:
+        type_vocab_target.embeddings.token_type_embeddings = \
+            type_vocab_target._get_resized_embeddings(
+                type_vocab_target.embeddings.token_type_embeddings, original_type_vocab_size
+            )
     
     if len(missing_keys):
         print(

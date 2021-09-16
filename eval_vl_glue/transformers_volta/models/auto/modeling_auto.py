@@ -42,10 +42,10 @@ from ..bert.modeling_bert import (
 # FOR CUSTOM MODELS
 # We have just implemented a model for the simple classification
 from ..volta.modeling_volta import (
-    #VoltaForMaskedLM,
+    VoltaForMaskedLM,
     #VoltaForMultipleChoice,
     #VoltaForNextSentencePrediction,
-    #VoltaForPreTraining,
+    VoltaForVLPreTraining,
     #VoltaForQuestionAnswering,
     VoltaForSequenceClassification,
     #VoltaForTokenClassification,
@@ -82,6 +82,7 @@ MODEL_FOR_PRETRAINING_MAPPING = OrderedDict(
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForPreTraining),
         # FOR CUSTOM MODELS
+        (VoltaConfig, VoltaForVLPreTraining),
     ]
 )
 
@@ -91,6 +92,7 @@ MODEL_WITH_LM_HEAD_MAPPING = OrderedDict(
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForMaskedLM),
         # FOR CUSTOM MODELS
+        (VoltaConfig, VoltaForMaskedLM),
     ]
 )
 
@@ -109,6 +111,7 @@ MODEL_FOR_MASKED_LM_MAPPING = OrderedDict(
         (EncoderDecoderConfig, EncoderDecoderModel),
         (BertConfig, BertForMaskedLM),
         # FOR CUSTOM MODELS
+        (VoltaConfig, VoltaForMaskedLM),
     ]
 )
 

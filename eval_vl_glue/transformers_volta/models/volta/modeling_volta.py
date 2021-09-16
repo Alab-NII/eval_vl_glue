@@ -55,6 +55,7 @@ from ...modeling_utils import (
 )
 from ...utils import logging
 from .configuration_volta import VoltaConfig
+from .vision_loss import vl_pretraining_losses
 
 import copy
 
@@ -72,15 +73,11 @@ VOLTA_PRETRAINED_MODEL_ARCHIVE_LIST = [
 
 # Not implemented
 # def load_tf_weights_in_volta(model, config, tf_checkpoint_path):
-# class VoltaPredictionHeadTransform(nn.Module):
-# class VoltaLMPredictionHead(nn.Module):
-# class VoltaOnlyMLMHead(nn.Module):
 # class VoltaOnlyNSPHead(nn.Module):
 # class VoltaPreTrainingHeads(nn.Module):
 # class VoltaForPreTrainingOutput(ModelOutput):
 # class VoltaForPreTraining(VoltaPreTrainedModel):
 # class VoltaLMHeadModel(VoltaPreTrainedModel):
-# class VoltaForMaskedLM(VoltaPreTrainedModel):
 # class VoltaForNextSentencePrediction(VoltaPreTrainedModel):
 # class VoltaForMultipleChoice(VoltaPreTrainedModel):
 # class VoltaForTokenClassification(VoltaPreTrainedModel):
@@ -185,6 +182,142 @@ class SequenceClassifierOutputVL(ModelOutput):
     hidden_states_l: Optional[Tuple[torch.FloatTensor]] = None
     attentions_v: Optional[Tuple[torch.FloatTensor]] = None
     attentions_l: Optional[Tuple[torch.FloatTensor]] = None
+
+        
+class VoltaPredictionHeadTransform(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        if isinstance(config.hidden_act, str):
+            self.transform_act_fn = ACT2FN[config.hidden_act]
+        else:
+            self.transform_act_fn = config.hidden_act
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+
+    def forward(self, hidden_states):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.transform_act_fn(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states)
+        return hidden_states
+
+
+class VoltaImagePredictionHeadTransform(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.v_hidden_size, config.v_hidden_size)
+        if isinstance(config.hidden_act, str):
+            self.transform_act_fn = ACT2FN[config.hidden_act]
+        else:
+            self.transform_act_fn = config.v_hidden_act
+        if config.image_head_ln:
+            self.LayerNorm = FusedLayerNorm(config.v_hidden_size, eps=1e-12)
+        else:
+            self.LayerNorm = lambda x: x
+
+    def forward(self, hidden_states):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.transform_act_fn(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states)
+        return hidden_states
+
+
+class VoltaLMPredictionHead(nn.Module):
+    def __init__(self, config, bert_model_embedding_weights):
+        super().__init__()
+        self.transform = VoltaPredictionHeadTransform(config)
+
+        # The output weights are the same as the input embeddings, but there is an output-only bias for each token.
+        self.decoder = nn.Linear(
+            bert_model_embedding_weights.size(1),
+            bert_model_embedding_weights.size(0),
+            bias=False,
+        )
+        self.decoder.weight = bert_model_embedding_weights
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
+
+    def forward(self, hidden_states):
+        hidden_states = self.transform(hidden_states)
+        hidden_states = self.decoder(hidden_states) + self.bias
+        return hidden_states
+        
+
+class VoltaOnlyMLMHead(nn.Module):
+    def __init__(self, config, bert_model_embedding_weights):
+        super().__init__()
+        self.predictions = VoltaLMPredictionHead(config, bert_model_embedding_weights)
+
+    def forward(self, sequence_output):
+        prediction_scores = self.predictions(sequence_output)
+        return prediction_scores
+
+
+class VoltaImagePredictionHead(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.transform = VoltaImagePredictionHeadTransform(config)
+
+        # The output weights are the same as the input embeddings, but there is an output-only bias for each token.
+        self.decoder_dict = nn.ModuleDict({
+            key: nn.Linear(config.v_hidden_size, cls.input_dim)
+            for key, cls in vl_pretraining_losses.items()
+            if config.visual_target_weights.get(key, 0) > 0
+        })
+
+    def forward(self, hidden_states):
+        hidden_states = self.transform(hidden_states)
+        output = {}
+        for ix in self.decoder_dict:
+            output[ix] = self.decoder_dict[ix](hidden_states)
+        return output
+
+    
+class VoltaVLPreTrainingHeads(nn.Module):
+    
+    def __init__(self, config, bert_model_embedding_weights):
+        super().__init__()
+        self.predictions = VoltaLMPredictionHead(config, bert_model_embedding_weights)
+        if config.fusion_method in {"none", "vl-bert_vqa"}:
+            self.bi_seq_relationship = lambda x: None
+        else:
+            self.bi_seq_relationship = nn.Linear(config.pooler_size, 2)
+        self.imagePredictions = VoltaImagePredictionHead(config)
+        self.fusion_method = config.fusion_method
+        self.dropout = nn.Dropout(0.1)
+        self.apply(self.init_weights)
+
+    def init_weights(self, module):
+        """ Initialize the weights.
+        """
+        if isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+        elif isinstance(module, nn.Linear):
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, FusedLayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
+    def forward(self, sequence_output_t, sequence_output_v, pooled_output_t, pooled_output_v):
+        
+        if self.fusion_method == "sum":
+            pooled_output = self.dropout(pooled_output_t + pooled_output_v)
+        elif self.fusion_method == "mul":
+            pooled_output = self.dropout(pooled_output_t * pooled_output_v)
+        elif self.fusion_method == "text":
+            pooled_output = self.dropout(pooled_output_t)
+        elif self.fusion_method == "vl-bert_vqa":
+            pooled_output = self.dropout(pooled_output_t)
+        elif self.fusion_method == "none":
+            pooled_output = None
+        else:
+            assert False
+
+        prediction_scores_t = self.predictions(sequence_output_t)
+        seq_relationship_score = self.bi_seq_relationship(pooled_output)
+        prediction_scores_v_dict = self.imagePredictions(sequence_output_v)
+
+        return prediction_scores_t, prediction_scores_v_dict, seq_relationship_score, pooled_output
 
 
 class VoltaEmbeddings(nn.Module):
@@ -356,6 +489,7 @@ class VoltaEmbeddingsVLBert(nn.Module):
         # Token Embedding + Visual Feature Embedding for text
         seq_length = token_ids.size(1)
         text_linguistic_embedding = self.word_embeddings(token_ids)
+        # ToDo: is this right?
         text_visual_embeddings = final_feats[:, -1].repeat(1, seq_length).view(batch_size, seq_length, -1)
         if self.visual_1x1_text is not None:
             text_visual_embeddings = self.visual_1x1_text(text_visual_embeddings)
@@ -1159,7 +1293,6 @@ class VoltaPreTrainedModel(PreTrainedModel):
             module.bias.data.zero_()
 
 
-
 VOLTA_START_DOCSTRING = r"""(not provided)"""
 VOLTA_INPUTS_DOCSTRING = r"""(not provided)"""
 
@@ -1170,7 +1303,7 @@ VOLTA_INPUTS_DOCSTRING = r"""(not provided)"""
 )
 class VoltaModel(VoltaPreTrainedModel):
 
-    def __init__(self, config):
+    def __init__(self, config, add_pooling_layer=True):
         super().__init__(config)
         
         self._pad_token_id = config.pad_token_id
@@ -1189,33 +1322,40 @@ class VoltaModel(VoltaPreTrainedModel):
             self.v_embeddings = DUAL_EMBEDDINGS[config.image_embeddings](config)
         else:
             self.v_embeddings = lambda x, y: None
-
-        self.encoder = VoltaEncoder(config)
-        self.fusion_method = config.fusion_method
-        
-        if config.fusion_method == "none":
-            self.t_pooler = lambda x: None
-        elif config.fusion_method == "vl-bert_vqa":
-            self.t_pooler = VoltaPoolerVLBert(config)
-        else:
-            self.t_pooler = VoltaPooler(config)
-        
-        if config.fusion_method in {"none", "text", "vl-bert_vqa"}:
-            self.v_pooler = lambda x: None
-        else:
-            assert config.pooler_size == config.v_pooler_size, "pooler_size != v_pooler_size"
-            self.v_pooler = VoltaPoolerImage(config)
         
         if config.image_embeddings in SHARED_EMBEDDINGS:
             self.embeddings = SHARED_EMBEDDINGS[config.image_embeddings](config)
             self.shared_embeddings = True
         
-        # make dummy image inputs
+        # make default image inputs
         num_boxes = config.default_num_boxes
         if config.add_global_imgfeat:
             num_boxes += 1
         self.register_buffer('dummy_input_imgs', torch.zeros((1, num_boxes, config.v_feature_size)))
         self.register_buffer('dummy_image_loc', torch.zeros((1, num_boxes, config.num_locs)))
+        
+        # encoder
+        self.encoder = VoltaEncoder(config)
+        
+        # pooling
+        self.fusion_method = config.fusion_method
+        self.add_pooling_layer = add_pooling_layer
+        if not add_pooling_layer:
+            self.t_pooler = None
+            self.v_pooler = None
+        else:
+            if config.fusion_method == "none":
+                self.t_pooler = lambda x: None
+            elif config.fusion_method == "vl-bert_vqa":
+                self.t_pooler = VoltaPoolerVLBert(config)
+            else:
+                self.t_pooler = VoltaPooler(config)
+        
+            if config.fusion_method in {"none", "text", "vl-bert_vqa"}:
+                self.v_pooler = lambda x: None
+            else:
+                assert config.pooler_size == config.v_pooler_size, "pooler_size != v_pooler_size"
+                self.v_pooler = VoltaPoolerImage(config)
         
         self.init_weights()
     
@@ -1333,14 +1473,18 @@ class VoltaModel(VoltaPreTrainedModel):
         sequence_output_v = encoder_outputs[0]
         sequence_output_l = encoder_outputs[1]
         
-        pooled_output_v = self.v_pooler(sequence_output_v)
-        
-        if self.fusion_method == "vl-bert_vqa":
-            text_mask = input_ids != self._pad_token_id
-            text_end = text_mask.sum(1, keepdim=True)
-            pooled_output_l = self.t_pooler(sequence_output_l, text_end)
+        if not self.add_pooling_layer:
+            pooled_output_v = None
+            pooled_output_l = None
         else:
-            pooled_output_l = self.t_pooler(sequence_output_l)
+            pooled_output_v = self.v_pooler(sequence_output_v)
+            
+            if self.fusion_method == "vl-bert_vqa":
+                text_mask = input_ids != self._pad_token_id
+                text_end = text_mask.sum(1, keepdim=True)
+                pooled_output_l = self.t_pooler(sequence_output_l, text_end)
+            else:
+                pooled_output_l = self.t_pooler(sequence_output_l)
         
         if not return_dict:
             return (sequence_output_v, sequence_output_l, pooled_output_v, pooled_output_l) + encoder_outputs[2:]
@@ -1355,6 +1499,234 @@ class VoltaModel(VoltaPreTrainedModel):
             attentions_v=encoder_outputs.attentions_v,
             attentions_l=encoder_outputs.attentions_l,
         )
+
+    
+class VoltaForVLPreTraining(VoltaPreTrainedModel):
+    
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.volta = VoltaModel(config)
+        self.cls = VoltaVLPreTrainingHeads(config, self.volta.embeddings.word_embeddings.weight)
+
+        self.loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+        self.visual_target_weights = config.visual_target_weights
+        print("model's visual targets are ", [ix for ix, w in config.visual_target_weights.items() if w > 0])
+
+        self.add_global_imgfeat = int(config.add_global_imgfeat is not None)
+
+        self.init_weights()
+
+    def tie_weights(self):
+        """ Make sure we are sharing the input and output embeddings.
+            Export to TorchScript can't handle parameter sharing so we are cloning them instead.
+        """
+        self._tie_or_clone_weights(self.cls.predictions.decoder, self.volta.embeddings.word_embeddings)
+
+    def forward(
+        self,
+        input_ids=None,
+        input_images=None,
+        image_loc=None,
+        token_type_ids=None,
+        attention_mask=None,
+        image_attention_mask=None,
+        # ===== labels =====
+        masked_lm_labels=None,
+        image_label=None,
+        image_cls=None,
+        obj_labels=None,
+        obj_confs=None,
+        attr_labels=None,
+        attr_confs=None,
+        image_attrs=None,
+        next_sentence_label=None,
+        # ===== labels =====
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+    ):
+        assert False, 'We have not modified forward function for VL Pretraining.'
+        # in this model, we first embed the images.
+        #  Match output shape
+        encoded_layers_t, encoded_layers_v, pooled_output_t, pooled_output_v, all_attention_mask = self.volta(
+            input_ids,
+            image_feat,
+            image_loc,
+            token_type_ids,
+            attention_mask,
+            image_attention_mask,
+        )
+        if output_all_encoded_layers:
+            sequence_output_t = encoded_layers_t[-1]
+            sequence_output_v = encoded_layers_v[-1]
+        else:
+            sequence_output_t = encoded_layers_t
+            sequence_output_v = encoded_layers_v
+
+        prediction_scores_t, prediction_scores_v_dict, seq_relationship_score, pooled_output = self.cls(
+            sequence_output_t, sequence_output_v, pooled_output_t, pooled_output_v
+        )
+
+        # Vision loss
+        img_loss = 0
+        for ix, weight in self.visual_target_weights.items():
+            if self.config.add_global_imgfeat == "last":
+                prediction_scores_v = prediction_scores_v_dict[ix][:, :-1]
+            else:
+                prediction_scores_v = prediction_scores_v_dict[ix][:, self.add_global_imgfeat:]
+            # ref pre_vis_criterions in losses
+            img_loss += pre_vis_criterions[ix](prediction_scores_v, weight, image_label, image_cls, image_feat,
+                                               obj_labels, obj_confs, attr_labels, attr_confs)
+
+        masked_img_loss = img_loss > 0 if type(img_loss) == int else img_loss.cpu().item() > 0
+        if masked_img_loss:
+            img_loss = img_loss.unsqueeze(0)
+        else:
+            img_loss = torch.zeros(1).cuda()
+
+        if masked_lm_labels is not None:
+            masked_lm_loss = self.loss_fct(
+                prediction_scores_t.view(-1, self.config.vocab_size),
+                masked_lm_labels.view(-1),
+            ).unsqueeze(0)
+        else:
+            masked_lm_loss = torch.zeros(1).cuda()
+
+        if (seq_relationship_score is not None) and (next_sentence_label is not None):
+            next_sentence_loss = self.loss_fct(
+                seq_relationship_score.view(-1, 2),
+                next_sentence_label.view(-1)
+            ).unsqueeze(0)
+        else:
+            next_sentence_loss = torch.zeros(1).cuda()
+        
+        # Change output shape
+        if masked_img_loss or masked_lm_loss or next_sentence_loss:
+            if output_all_encoded_layers:
+                return masked_lm_loss, img_loss, next_sentence_loss, encoded_layers_t, encoded_layers_v
+            return masked_lm_loss, img_loss, next_sentence_loss
+        else:
+            if output_all_encoded_layers:
+                return prediction_scores_t, prediction_scores_v_dict, seq_relationship_score, all_attention_mask, \
+                       pooled_output, encoded_layers_t, encoded_layers_v
+            return prediction_scores_t, prediction_scores_v_dict, seq_relationship_score, all_attention_mask, pooled_output
+
+    
+@add_start_docstrings("""Bert Model with a `language modeling` head on top. """, VOLTA_START_DOCSTRING)
+class VoltaForMaskedLM(VoltaPreTrainedModel):
+
+    _keys_to_ignore_on_load_unexpected = [r"pooler"]
+    _keys_to_ignore_on_load_missing = [r"position_ids", r"predictions.decoder.bias"]
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        if config.is_decoder:
+            raise RuntimeError('Volta currently support only encoder')
+        
+        self.volta = VoltaModel(config, add_pooling_layer=False)
+        self.cls = VoltaOnlyMLMHead(config, self.volta.embeddings.word_embeddings.weight)
+
+        self.init_weights()
+    
+    def tie_weights(self):
+        """
+        Tie the weights between the input embeddings and the output embeddings.
+
+        If the :obj:`torchscript` flag is set in the configuration, can't handle parameter sharing so we are cloning
+        the weights instead.
+        """
+        self._tie_or_clone_weights(self.cls.predictions.decoder, self.volta.embeddings.word_embeddings)
+
+    def get_output_embeddings(self):
+        return self.cls.predictions.decoder
+
+    def set_output_embeddings(self, new_embeddings):
+        self.cls.predictions.decoder = new_embeddings
+
+    @add_start_docstrings_to_model_forward(VOLTA_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
+    @add_code_sample_docstrings(
+        tokenizer_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
+        output_type=MaskedLMOutput,
+        config_class=_CONFIG_FOR_DOC,
+    )
+    def forward(
+        self,
+        input_ids=None,
+        input_images=None,
+        image_loc=None,        
+        attention_mask=None,
+        token_type_ids=None,
+        #position_ids=None,
+        image_attention_mask=None,
+        #head_mask=None,
+        #inputs_embeds=None,
+        labels=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+    ):
+        r"""
+        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`):
+            Labels for computing the masked language modeling loss. Indices should be in ``[-100, 0, ...,
+            config.vocab_size]`` (see ``input_ids`` docstring) Tokens with indices set to ``-100`` are ignored
+            (masked), the loss is only computed for the tokens with labels in ``[0, ..., config.vocab_size]``
+        """
+
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        outputs = self.volta(
+            input_ids,
+            input_images=input_images,
+            image_loc=image_loc,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            #position_ids=position_ids,
+            image_attention_mask=image_attention_mask,
+            #head_mask=head_mask,
+            #inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+        )
+        
+        #sequence_output_v = outputs[0]
+        sequence_output_l = outputs[1]
+        
+        prediction_scores = self.cls(sequence_output_l)
+
+        masked_lm_loss = None
+        if labels is not None:
+            loss_fct = CrossEntropyLoss()  # -100 index = padding token
+            masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
+
+        if not return_dict:
+            output = (prediction_scores,) + outputs[2:]
+            return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
+        
+        # change object for vl
+        return MaskedLMOutput(
+            loss=masked_lm_loss,
+            logits=prediction_scores,
+            hidden_states=outputs.hidden_states_l,
+            attentions=outputs.attentions_l,
+        )
+
+    #def prepare_inputs_for_generation(self, input_ids, attention_mask=None, **model_kwargs):
+    #    input_shape = input_ids.shape
+    #    effective_batch_size = input_shape[0]
+    #
+    #    #  add a dummy token
+    #    assert self.config.pad_token_id is not None, "The PAD token should be defined for generation"
+    #    attention_mask = torch.cat([attention_mask, attention_mask.new_zeros((attention_mask.shape[0], 1))], dim=-1)
+    #    dummy_token = torch.full(
+    #        (effective_batch_size, 1), self.config.pad_token_id, dtype=torch.long, device=input_ids.device
+    #    )
+    #    input_ids = torch.cat([input_ids, dummy_token], dim=1)
+    #
+    #    return {"input_ids": input_ids, "attention_mask": attention_mask}
 
 
 @add_start_docstrings(
