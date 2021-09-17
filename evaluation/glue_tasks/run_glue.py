@@ -601,7 +601,7 @@ def main():
         trainer.save_metrics("train", metrics)
         trainer.save_state()
     
-    def dump_prediction(target_dataset, output_file_prefix):
+    def dump_prediction(target_dataset, output_file_prefix, label_attached):
         
         # Loop to handle MNLI double evaluation (matched, mis-matched)
         if data_args.task_name == "mnli":
@@ -612,30 +612,39 @@ def main():
             target_datasets = [target_dataset]
         
         for target_dataset, task in zip(target_datasets, tasks):
-            # Removing the `label` columns because it contains -1 and Trainer won't like that.
-            target_dataset.remove_columns_("label")
-            predictions = trainer.predict(test_dataset=target_dataset).predictions
+            # Removing the `label` columns because it contains -1 and Trainer won't like that (for the test case).
+            dataset_wo_label = target_dataset.map(remove_columns=['label'])
+            predictions = trainer.predict(test_dataset=dataset_wo_label).predictions
             predictions = np.squeeze(predictions) if is_regression else np.argmax(predictions, axis=1)
-
+            
             output_test_file = os.path.join(training_args.output_dir, f"{output_file_prefix}_results_{task}.txt")
             if trainer.is_world_process_zero():
+                columns = ['index', 'prediction'] + ['label']*label_attached
                 with open(output_test_file, "w") as writer:
-                    writer.write("index\tprediction\n")
-                    for index, item in enumerate(predictions):
+                    writer.write('\t'.join(columns) + '\n')
+                    for index, (pred, data) in enumerate(zip(predictions, target_dataset)):
+                        label = data['label']
                         if is_regression:
-                            writer.write(f"{index}\t{item:3.3f}\n")
+                            pred = f'{pred:3.3f}'
+                            label = f'{label:3.3f}'
                         else:
-                            item = label_list[item]
-                            writer.write(f"{index}\t{item}\n")
+                            pred = label_list[pred]
+                            label = label_list[label] if label >= 0 else None
+                        
+                        if label_attached:
+                            writer.write(f"{index}\t{pred}\t{label}\n")
+                        else:
+                            writer.write(f"{index}\t{pred}\n")
+                            
                 logger.info(f"***** {output_file_prefix} results {task} created *****")
     
     if data_args.do_dump_val:
         logger.info("*** Dump validation results ***")
-        dump_prediction(eval_dataset, 'valid')
+        dump_prediction(eval_dataset, 'valid', label_attached=True)
 
     if training_args.do_predict:
         logger.info("*** Test ***")
-        dump_prediction(test_dataset, 'test')
+        dump_prediction(test_dataset, 'test', label_attached=False)
     
     # Evaluation
     eval_results = {}
