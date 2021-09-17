@@ -112,7 +112,12 @@ class DataTrainingArguments:
         default=None, metadata={"help": "A csv or a json file containing the validation data."}
     )
     test_file: Optional[str] = field(default=None, metadata={"help": "A csv or a json file containing the test data."})
-
+    
+    # Add this option to dump prediction for the validation set.
+    do_dump_val: Optional[bool] = field(
+        default=False, metadata={"help": "Whether to dump prediction for the validation set at last or not"}
+    )
+    
     def __post_init__(self):
         if self.task_name is not None:
             self.task_name = self.task_name.lower()
@@ -519,7 +524,7 @@ def main():
         train_dataset = datasets["train"]
     
     eval_dataset = None
-    if training_args.do_eval:
+    if training_args.do_eval or data_args.do_dump_val:
         if data_args.task_name == "mnli":
             eval_dataset = collections.OrderedDict([('', datasets["validation_matched"]), ('mm', datasets['validation_mismatched'])])
         else:
@@ -534,8 +539,8 @@ def main():
     
     # Log a few random samples from the training set:
     if train_dataset is not None:
-       for index in random.sample(range(len(train_dataset)), 3):
-           logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
+        for index in random.sample(range(len(train_dataset)), 3):
+            logger.info(f"Sample {index} of the training set: {train_dataset[index]}.")
 
     # Get the metric function
     if data_args.task_name is not None and data_args.task_name != 'ax':
@@ -595,65 +600,26 @@ def main():
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
-
-    # Evaluation
-    eval_results = {}
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-
-        #eval_result = trainer.evaluate(eval_dataset=eval_dataset)
-        #trainer.log_metrics("eval", eval_result)
-        #trainer.save_metrics("eval", eval_result)
+    
+    def dump_prediction(target_dataset, output_file_prefix):
         
-        # Loop to handle MNLI double evaluation (matched, mis-matched)
-        if data_args.task_name == "mnli":
-            target_tasks = ['mnli_m', 'mnli_mm']
-            target_datasets = [eval_dataset[''], eval_dataset['mm']]
-        else:
-            target_tasks = [data_args.task_name]
-            target_datasets = [eval_dataset]
-        
-        for target_dataset, target_task in zip(target_datasets, target_tasks):
-            # Removing the `label` columns because it contains -1 and Trainer won't like that.
-            dataset_wo_label = target_dataset.map(remove_columns=['label'])
-            predictions = trainer.predict(test_dataset=dataset_wo_label).predictions
-            predictions = np.squeeze(predictions) if is_regression else np.argmax(predictions, axis=1)
-
-            output_file = os.path.join(training_args.output_dir, f"valid_results_{target_task}.txt")
-            if trainer.is_world_process_zero():
-                with open(output_file, "w") as writer:
-                    logger.info(f"***** Validation results {target_task} *****")
-                    writer.write("index\tprediction\n")
-                    for index, (pred, data) in enumerate(zip(predictions, target_dataset)):
-                        label = data['label']
-                        if is_regression:
-                            writer.write(f"{index}\t{pred:3.3f}\t{label}\n")
-                        else:
-                            pred = label_list[pred]
-                            label = label_list[label]
-                            writer.write(f"{index}\t{pred}\t{label}\n")
-
-    if training_args.do_predict:
-        logger.info("*** Test ***")
-
         # Loop to handle MNLI double evaluation (matched, mis-matched)
         if data_args.task_name == "mnli":
             tasks = ['mnli_m', 'mnli_mm']
-            test_datasets = [test_dataset[''], test_datset['mm']]
+            target_datasets = [target_dataset[''], target_dataset['mm']]
         else:
             tasks = [data_args.task_name]
-            test_datasets = [test_dataset]
+            target_datasets = [target_dataset]
         
-        for test_dataset, task in zip(test_datasets, tasks):
+        for target_dataset, task in zip(target_datasets, tasks):
             # Removing the `label` columns because it contains -1 and Trainer won't like that.
-            test_dataset.remove_columns_("label")
-            predictions = trainer.predict(test_dataset=test_dataset).predictions
+            target_dataset.remove_columns_("label")
+            predictions = trainer.predict(test_dataset=target_dataset).predictions
             predictions = np.squeeze(predictions) if is_regression else np.argmax(predictions, axis=1)
 
-            output_test_file = os.path.join(training_args.output_dir, f"test_results_{task}.txt")
+            output_test_file = os.path.join(training_args.output_dir, f"{output_file_prefix}_results_{task}.txt")
             if trainer.is_world_process_zero():
                 with open(output_test_file, "w") as writer:
-                    logger.info(f"***** Test results {task} *****")
                     writer.write("index\tprediction\n")
                     for index, item in enumerate(predictions):
                         if is_regression:
@@ -661,6 +627,25 @@ def main():
                         else:
                             item = label_list[item]
                             writer.write(f"{index}\t{item}\n")
+                logger.info(f"***** {output_file_prefix} results {task} created *****")
+    
+    if data_args.do_dump_val:
+        logger.info("*** Dump validation results ***")
+        dump_prediction(eval_dataset, 'valid')
+
+    if training_args.do_predict:
+        logger.info("*** Test ***")
+        dump_prediction(test_dataset, 'test')
+    
+    # Evaluation
+    eval_results = {}
+    if training_args.do_eval:
+        logger.info("*** Evaluate ***")
+        eval_dataset = datasets["test"]
+        eval_result = trainer.evaluate(eval_dataset=eval_dataset)
+        trainer.log_metrics("eval", eval_result)
+        trainer.save_metrics("eval", eval_result)    
+    
     return eval_results
 
 

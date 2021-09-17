@@ -1,5 +1,11 @@
 /*.ipynb
 
+# analysis outputs
+evaluation/analysis/*
+!evaluation/analysis/*.ipynb
+!evaluation/analysis/*.sh
+!evaluation/analysis/*.py
+
 # model files
 resnet101_faster_rcnn_final_iter_320000.pt
 resnet101_faster_rcnn_final.pt
