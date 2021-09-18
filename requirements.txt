@@ -8,7 +8,7 @@ numpy
 # extractor
 # Although we enumerate Pillow and cv2, either cv2 or Pillow is enough.
 Pillow
-cv2
+opencv-python
 
 # transformer_volta
 tqdm
