@@ -516,26 +516,32 @@ def main():
         if label_to_id is not None and "label" in examples:
             result["label"] = [(label_to_id[l] if l != -1 else -1) for l in examples["label"]]
         return result
-
-    datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
+    
+    _map = lambda x: x.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
+    #datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
 
     train_dataset = None
     if training_args.do_train:
-        train_dataset = datasets["train"]
+        train_dataset = _map(datasets["train"])
     
     eval_dataset = None
     if training_args.do_eval or data_args.do_dump_val:
         if data_args.task_name == "mnli":
-            eval_dataset = collections.OrderedDict([('', datasets["validation_matched"]), ('mm', datasets['validation_mismatched'])])
+            eval_dataset = collections.OrderedDict()
+            for key, name in [('', "validation_matched"), ('mm', 'validation_mismatched')]:
+                eval_dataset[key] = _map(datasets[name])
         else:
-            eval_dataset = datasets["validation"]
+            eval_dataset = _map(datasets["validation"])
     
     test_dataset = None
-    if data_args.task_name is not None or data_args.test_file is not None:
+    #if data_args.task_name is not None or data_args.test_file is not None:
+    if training_args.do_predict:
         if data_args.task_name == "mnli":
-            test_dataset = collections.OrderedDict([('', datasets["test_matched"]), ('mm', datasets['test_mismatched'])])
+            test_dataset = collections.OrderedDict()
+            for key, name in [('', "test_matched"), ('mm', 'test_mismatched')]:
+                test_dataset[key] = _map(datasets[name])
         else:
-            test_dataset = datasets["test"]
+            test_dataset = _map(datasets["test"])
     
     # Log a few random samples from the training set:
     if train_dataset is not None:

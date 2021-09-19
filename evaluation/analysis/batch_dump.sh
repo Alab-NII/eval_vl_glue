@@ -9,6 +9,8 @@ TARGET_LIST_FILE="$1"
 OUTPUT_ROOT_DIR='prediction'
 SEED=42 # not used
 
+mkdir -p $OUTPUT_ROOT_DIR
+
 cat $TARGET_LIST_FILE | while read line ; do
     
     # skip lines startswith '#' (header)

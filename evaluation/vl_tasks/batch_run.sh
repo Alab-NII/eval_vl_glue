@@ -9,17 +9,17 @@
 tasks="nlvr2"
 
 # - Models to be trained
-pt_models="ctrl_lxmert_base ctrl_uniter_base ctrl_vilbert_base ctrl_visual_bert_base ctrl_vl_bert_base"
-reinit_models="ctrl_lxmert_base_reinit ctrl_uniter_base_reinit ctrl_vilbert_base_reinit ctrl_visual_bert_base_reinit ctrl_vl_bert_base_reinit"
+pt_models="ctrl_lxmert ctrl_uniter ctrl_vilbert ctrl_visual_bert ctrl_vl_bert"
+reinit_models="ctrl_lxmert_reinit ctrl_uniter_reinit ctrl_vilbert_reinit ctrl_visual_bert_reinit ctrl_vl_bert_reinit"
 models="$pt_models $reinit_models"
 
 # - Prefix for the run (should be integers)
 prefixes="0 1 2"
 
 # Debug settings
-tasks="nlvr2"
-models="ctrl_lxmert"
-prefixes="0"
+#tasks="nlvr2"
+#models="ctrl_lxmert"
+#prefixes="0"
 
 # Directories
 pretrained_models_dir="vl_models/pretrained"

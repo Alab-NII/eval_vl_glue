@@ -27,7 +27,7 @@ def get_best_model_info(trainer_state_path):
     return None
 
 
-def print_best_models(root_path):
+def print_best_models(root_path, show_only_exist):
    
     target_name = 'trainer_state.json'
     header = ['#model', 'trial', 'task', 'epoch', 'step', 'eval_loss', 'checkpoint']
@@ -47,6 +47,9 @@ def print_best_models(root_path):
                 model_name = os.path.basename(os.path.dirname(cur_dir))
                 trial_name = os.path.basename(os.path.dirname(os.path.dirname(cur_dir)))
                 checkpoint_path = os.path.join(cur_dir, 'checkpoint-%d'%best_valid_info['step'])
+                
+                if show_only_exist and not os.path.exists(checkpoint_path):
+                    continue
                 print(model_name, trial_name, task_name, 
                     best_valid_info['epoch'], best_valid_info['step'], best_valid_info['eval_loss'],
                    checkpoint_path, sep='\t')
@@ -59,6 +62,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Enumerate best models')
     parser.add_argument('--root', '-r', type=str, required=True,
         help='path to a root directory to walk recursively')
+    parser.add_argument('--exist', '-e', type=int, default=1,
+        help='If set 1, list up information only about models that really exist.')
     args = parser.parse_args()
     
-    print_best_models(args.root)
+    print_best_models(args.root, args.exist)
