@@ -10,11 +10,10 @@ tasks="nlvr2"
 
 # - Models to be trained
 pt_models="ctrl_lxmert ctrl_uniter ctrl_vilbert ctrl_visual_bert ctrl_vl_bert"
-reinit_models="ctrl_lxmert_reinit ctrl_uniter_reinit ctrl_vilbert_reinit ctrl_visual_bert_reinit ctrl_vl_bert_reinit"
-models="$pt_models $reinit_models"
+models="$pt_models"
 
 # - Prefix for the run (should be integers)
-prefixes="0 1 2"
+prefixes="0"
 
 # Debug settings
 #tasks="nlvr2"
