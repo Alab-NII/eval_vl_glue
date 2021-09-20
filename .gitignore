@@ -9,6 +9,7 @@ evaluation/analysis/*
 !evaluation/analysis/*.ipynb
 !evaluation/analysis/*.sh
 !evaluation/analysis/*.py
+evaluation/vl_tasks/best_models_nlvr2.txt
 
 # model files
 resnet101_faster_rcnn_final_iter_320000.pt
