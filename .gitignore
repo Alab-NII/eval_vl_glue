@@ -1,5 +1,9 @@
 /*.ipynb
 
+# data files
+evaluation/vl_tasks/nlvr2/*
+!evaluation/vl_tasks/nlvr2/.gitkeep
+
 # analysis outputs
 evaluation/analysis/*
 !evaluation/analysis/*.ipynb
@@ -23,10 +27,6 @@ vl_models/pretrained/*
 !vl_models/pretrained/.gitkeep
 vl_models/finetuned/*
 !vl_models/finetuned/.gitkeep
-
-# directory
-sandbox/
-papers/
 
 # mac
 .DS_Store
