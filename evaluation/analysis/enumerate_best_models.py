@@ -7,28 +7,37 @@ import os
 import json
 
 
-def get_best_model_info(trainer_state_path, extra_keys):
+def get_best_model_info(trainer_state_path, extra_keys, sort_metric='eval_loss'):
     """Read rainer_state to return which model is the besi in the run
     We use eval loss as model score.
     """
+    
+    sig = 1
+    if sort_metric.endswith('!'):
+        sig = -1
+        sort_metric = sort_metric[:-1]
+
     state = {}
     with open(trainer_state_path, 'r') as f:
         state = json.load(f)
     
     log_history = state.get('log_history', None)
     if log_history:
-        items_sorted = sorted([_ for _ in log_history if 'eval_loss' in _], key=lambda x: x['eval_loss'])
+        items_sorted = sorted([_ for _ in log_history if sort_metric in _], key=lambda x: sig*x[sort_metric])
         keys = ['epoch', 'step', 'eval_loss'] + extra_keys
         best_results = {kv[0]:kv[1] for kv in items_sorted[0].items() if kv[0] in keys}
         return best_results
     return None
 
 
-def print_best_models(root_path, show_only_exist, extra_keys):
+def print_best_models(root_path, show_only_exist, extra_keys, sort_metric):
    
     target_name = 'trainer_state.json'
     header = ['#model', 'trial', 'task', 'epoch', 'step', 'eval_loss', 'checkpoint'] + extra_keys
-    
+    for i in range(len(header)):
+        if header[i] == sort_metric.rstrip('!'):
+            header[i] = '*'+header[i]
+
     print(*header, sep='\t')   
     
     for cur_dir, dir_names, file_names in os.walk(root_path):
@@ -37,7 +46,7 @@ def print_best_models(root_path, show_only_exist, extra_keys):
             
             # determine the best model
             trainer_state_path = os.path.join(cur_dir, target_name)
-            best_valid_info = get_best_model_info(trainer_state_path, extra_keys)
+            best_valid_info = get_best_model_info(trainer_state_path, extra_keys, sort_metric)
             
             # print out the infomation about the best model
             if best_valid_info:
@@ -65,7 +74,9 @@ if __name__ == '__main__':
         help='If set 1, list up information only about models that really exist.')
     parser.add_argument('--keys', '-k', type=str, default=None,
         help='Additional keys to display; comma splitted and do not use spaces.')
+    parser.add_argument('--metric', '-m', type=str, default='eval_loss',
+        help='Metric for sorting. If you want the descending order, add "!" at the end')
     args = parser.parse_args()
     
     extra_keys = [] if args.keys is None else args.keys.split(',')
-    print_best_models(args.root, args.exist, extra_keys)
+    print_best_models(args.root, args.exist, extra_keys, args.metric)
