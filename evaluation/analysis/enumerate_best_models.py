@@ -7,7 +7,7 @@ import os
 import json
 
 
-def get_best_model_info(trainer_state_path):
+def get_best_model_info(trainer_state_path, extra_keys):
     """Read rainer_state to return which model is the besi in the run
     We use eval loss as model score.
     """
@@ -18,19 +18,17 @@ def get_best_model_info(trainer_state_path):
     log_history = state.get('log_history', None)
     if log_history:
         items_sorted = sorted([_ for _ in log_history if 'eval_loss' in _], key=lambda x: x['eval_loss'])
-        return {
-            'epoch': items_sorted[0]['epoch'],
-            'step': items_sorted[0]['step'],
-            'eval_loss': items_sorted[0]['eval_loss'],
-        }
-    
+        keys = ['epoch', 'step', 'eval_loss'] + extra_keys
+        best_results = {kv[0]:kv[1] for kv in items_sorted[0].items() if kv[0] in keys}
+        return best_results
     return None
 
 
-def print_best_models(root_path, show_only_exist):
+def print_best_models(root_path, show_only_exist, extra_keys):
    
     target_name = 'trainer_state.json'
-    header = ['#model', 'trial', 'task', 'epoch', 'step', 'eval_loss', 'checkpoint']
+    header = ['#model', 'trial', 'task', 'epoch', 'step', 'eval_loss', 'checkpoint'] + extra_keys
+    
     print(*header, sep='\t')   
     
     for cur_dir, dir_names, file_names in os.walk(root_path):
@@ -39,7 +37,7 @@ def print_best_models(root_path, show_only_exist):
             
             # determine the best model
             trainer_state_path = os.path.join(cur_dir, target_name)
-            best_valid_info = get_best_model_info(trainer_state_path)
+            best_valid_info = get_best_model_info(trainer_state_path, extra_keys)
             
             # print out the infomation about the best model
             if best_valid_info:
@@ -51,8 +49,9 @@ def print_best_models(root_path, show_only_exist):
                 if show_only_exist and not os.path.exists(checkpoint_path):
                     continue
                 print(model_name, trial_name, task_name, 
-                    best_valid_info['epoch'], best_valid_info['step'], best_valid_info['eval_loss'],
-                   checkpoint_path, sep='\t')
+                   best_valid_info['epoch'], best_valid_info['step'], best_valid_info['eval_loss'],
+                   checkpoint_path, *[best_valid_info[_] for _ in extra_keys],
+                   sep='\t')
 
 
 if __name__ == '__main__':
@@ -64,6 +63,9 @@ if __name__ == '__main__':
         help='path to a root directory to walk recursively')
     parser.add_argument('--exist', '-e', type=int, default=1,
         help='If set 1, list up information only about models that really exist.')
+    parser.add_argument('--keys', '-k', type=str, default=None,
+        help='Additional keys to display; comma splitted and do not use spaces.')
     args = parser.parse_args()
     
-    print_best_models(args.root, args.exist)
+    extra_keys = [] if args.keys is None else args.keys.split(',')
+    print_best_models(args.root, args.exist, extra_keys)
