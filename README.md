@@ -85,7 +85,7 @@ To improve the compatibility with the PyTorch model, we converted this model int
 You can access the converted model from extractor of the eval_vl_glue package.  
 See the section of extractor in eval_vl_glue for more detail.
 
-![Comparision of detected regions](/download/comparison.png)
+![Comparision of detected regions](/download/comparison.jpg)
 
 Notes:
 - This extractor work was done after our paper, so our results in the paper was based on the original BUTD detector. 
