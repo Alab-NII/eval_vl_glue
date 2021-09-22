@@ -10,12 +10,12 @@ Directory for pre-trained and fine-tuned models.
 
 ## Weights for the transformers_volta models
 
-We provide two methods to make the weights: **conversion** and **download**.  
-Created models can be used from the transfomers_volta by specifing their path.
+We provide two methods to prepared the weights: **conversion** and **download**.  
+The created models can be used from the transfomers_volta by specifing their path.
 
 ### Conversion
 
-We show the ctrl_vilbert case as an example.
+We describe the ctrl_vilbert case as an example.
 
 1. download the original weight from the link **ViLBERT (CTRL)** in [e-bug/volta/MODELS.md](https://github.com/e-bug/volta/blob/main/MODELS.md) into the download/volta\_weights directory, with the name *ctrl_vilbert*.
 2. run convert.py from the repository root directory.
@@ -24,16 +24,19 @@ We show the ctrl_vilbert case as an example.
     python convert.py --config download/volta_config/ctrl_vilbert_base.json --weight download/volta_weights/ctrl_vilbert
     ```
 
-This will make a ctrl\_vilbert (directory) in the vl\_models/pretrained directory.
+This will make a ctrl\_vilbert (directory) in vl\_models/pretrained.
 
 We prepared batch\_convert.sh to make the five models used our experiments (ctrl_visual_bert, ctrl_uniter, ctrl_vl_bert, ctrl_lxmert and ctrl_vilbert).
-Run this batch script from the repository root directory after downloading and placing the weights for ctrl_visual_bert, ctrl_uniter, ctrl_vl_bert, ctrl_lxmert and ctrl_vilbert.
+Run this batch script from the repository root directory after downloading and putting the corresponding weights.
 
 ### Download
 
-Alternatively, we made our model files available.
+Alternatively, you can download model files we made.
 Here is the url list.  
-To use those models, after downloading, unzip them and place the unzipped model directories into the pretrained directory.
+To use those models, after downloading, unzip them and put the unzipped model directories into vl\_models/pretrained.
+
+We made those model files from the [e-bug/volta](https://github.com/e-bug/volta) work.
+If you use these weights, do not forget to cite their work appropriately.
 
 **Controlled models:**
 
@@ -54,4 +57,3 @@ To use those models, after downloading, unzip them and place the unzipped model 
 | ctrl_vl_bert_reinit.zip | https://iki-my.sharepoint.com/personal/ikitaichi_iki_onmicrosoft_com/_layouts/15/download.aspx?share=EWHfsOSW06lGq24vErTxNywBEXM_xz-2RrEUpdKaYDwB8g |
 | ctrl_lxmert_reinit.zip | https://iki-my.sharepoint.com/personal/ikitaichi_iki_onmicrosoft_com/_layouts/15/download.aspx?share=EVj5ZaadBdBIthVkPQtQ5nQBlIVempj3paAfb6VOAm7_0w |
 | ctrl_vilbert_reinit.zip | https://iki-my.sharepoint.com/personal/ikitaichi_iki_onmicrosoft_com/_layouts/15/download.aspx?share=EWPY476hDwJMmzvcIzbFoO8BYinPJW3Lev9FpQIP9nJt9g |
-

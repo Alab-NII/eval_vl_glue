@@ -9,7 +9,7 @@ To install eval_vl_glue, run pip install *from the repository root directory*.
 pip install -e .
 ```
 
-- **extractor** contains the PyTorch definition of the image detector.
+- **extractor** contains the PyTorch definition of our image extractor.
 - **transformers_volta** provides volta models with Huggingface's transformers' like interface.
 - **volta_image_feature.py** defines how to change extracted image features for the volta models.
 
@@ -17,9 +17,9 @@ pip install -e .
 
 An image feature extractor.
 
-- **rcnn.py**. We combined [the neural network definition](https://github.com/peteanderson80/bottom-up-attention/blob/master/models/vg/ResNet-101/faster_rcnn_end2end_final/test.prototxt) and [the detection procedure](https://github.com/peteanderson80/bottom-up-attention/tree/master/lib) for [peteanderson80/bottom-up-attention](https://github.com/peteanderson80/bottom-up-attention)'s caffe model to make our PyTorch version.
+- **rcnn.py**. We combined the [neural network definition](https://github.com/peteanderson80/bottom-up-attention/blob/master/models/vg/ResNet-101/faster_rcnn_end2end_final/test.prototxt) and [detection procedure](https://github.com/peteanderson80/bottom-up-attention/tree/master/lib) of [peteanderson80/bottom-up-attention](https://github.com/peteanderson80/bottom-up-attention)'s caffe model to make an extractor of the PyTorch version.
 We also referred [airsplay/lxmert](https://github.com/airsplay/lxmert) for the default values of the detection procedure.  
-- **attributes_vocab.txt and objects_vocab.txt**. The class labels defined [here](https://github.com/peteanderson80/bottom-up-attention/tree/master/data/genome/1600-400-20).
+- **attributes_vocab.txt and objects_vocab.txt**. The class labels of objects and attributes, defined [here](https://github.com/peteanderson80/bottom-up-attention/tree/master/data/genome/1600-400-20).
 
 ### Usage
 
@@ -40,8 +40,18 @@ extractor.detect(PIL.Image.open(image_path))
 # returns a list of DetectedRegion.
 ```
 
-For the detail of the weight, see README.md in the download directory.  
-Some demo notebooks are available in the demo directory.
+We share the converted weights in the following links.
+Download and put them in the download directory.
+
+| file | url |
+| ---- | --- |
+| resnet101_faster_rcnn_final.pt | https://iki-my.sharepoint.com/personal/ikitaichi_iki_onmicrosoft_com/_layouts/15/download.aspx?share=ESOlEhST7TZBtsOAl_RlUFEBy9Dd81uzlTmne8qGTmvY4w |
+| resnet101_faster_rcnn_final_iter_320000.pt | https://iki-my.sharepoint.com/personal/ikitaichi_iki_onmicrosoft_com/_layouts/15/download.aspx?share=ESlZcYHqMGJMu7XAj0vakhkBPPT7cUcVaclATGoH77wDog |
+
+These weights are converted from pretrained model and alternative pretrained model in [peteanderson80/bottom-up-attention](https://github.com/peteanderson80/bottom-up-attention#demo).
+If you use these weights, do not forget to cite their work appropriately.
+
+Demo notebooks are available in [demo](/demo).
 
 ## transformers_volta
 
@@ -50,9 +60,11 @@ Transformers customized for our experiments.
 - Base repository is [transformers 4.4.0.dev0](https://github.com/huggingface/transformers/tree/v4.4.0).
 - **models/volta**. We added a volta model by using the codes in [e-bug/volta](https://github.com/e-bug/volta) as a reference.
 - We keep only models we used in our experiments and models required by those models: auto, BERT, encoder_decoder.
-  Some files for the model registration, such as init.py, have been changed.  
+  Some files related to the registration of models, such as init.py, have been changed.  
 
 ### Usage
+
+See [vl_models](/vl_models#weights-for-the-transformers_volta-models) for the way to prepare pre-trained models.
 
 ```
 # Load the transformer model (we try the masked token prediction)
@@ -98,6 +110,8 @@ mask_pos = x_text['input_ids'].index(tokenizer.mask_token_id)
 tokenizer.convert_ids_to_tokens(outputs.logits[0, mask_pos].argsort(descending=True)[:10].numpy())
 ```
 
+### Main changes
+
 **Models' forward functions**. 
 
 - We added input_images and image_attention_mask to the forward functions to input image features.
@@ -122,4 +136,3 @@ model.volta.set_default_image_feature(x_image)
 
 Note that the number of boxes (default_num_boxes), the number of location format (num_locs) and feature dimension (v_feature_size) of the given image features are required to match with the values in the model configuration.
 The default values are 36 + 1 (global features), 5 and 2048 respectively.
-

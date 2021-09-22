@@ -9,7 +9,7 @@ Directory for our evalutaion experiments.
 ## glue_tasks
 
 - **run_glue.py** is a script to fine-tune a model on the GLUE task.
-    We modified [run_glue.py](https://github.com/huggingface/transformers/blob/v4.4.0/examples/text-classification/run_glue.py) in the Huggingface's transformers repository to support prediction with the validation sets and multiple validation sets (for MNLI matched and mismatched sets).
+    We modified [run_glue.py](https://github.com/huggingface/transformers/blob/v4.4.0/examples/text-classification/run_glue.py) in the Huggingface's transformers repository to support prediction with multiple validation sets (for MNLI matched and mismatched sets).
 
     The usage is basically the same as the original one.
     
@@ -69,10 +69,10 @@ Directory for our evalutaion experiments.
 We used Jupyter Notebook.
 Please see each notebook for the detail.
 
-- **word_overlap.ipynb** calculates word overlap between corpora (Figure 1)
-- **get_glue_score.ipynb** calculates and summarizes models' GLUE score (Table 2 and 5)
-- **weight_similarity.ipynb** calculates weight similarity between models (Table 3)
-- **error_analysis.ipynb** devides problems according to whether the models are successful in the problems or not (Table 4)
+- [**word_overlap.ipynb**](/evaluation/analysis/word_overlap.ipynb) calculates word overlap between corpora (Figure 1)
+- [**get_glue_score.ipynb**](/evaluation/analysis/get_glue_score.ipynb) calculates and summarizes models' GLUE score (Table 2 and 5)
+- [**weight_similarity.ipynb**](/evaluation/analysis/weight_similarity.ipynb) calculates weight similarity between models (Table 3)
+- [**error_analysis.ipynb**](/evaluation/analysis/error_analysis.ipynb) deivides problems according to whether the models are successful in the problems or not (Table 4)
 
 When you run those notebooks in your environment, install the Notebook packages:
 
@@ -90,14 +90,14 @@ We used image features in the pre-processed data distributed in [e-bug/volta/dat
 
 Before the nlvr2 training, the data creation is required:
 
-1. Make the nlvr2 directory in the vl_tasks directory.
-2. Download annotation data (dev.json, test1.json, and train.json) from [lil-lab/nlvr/nlvr2/data/](https://github.com/lil-lab/nlvr/tree/master/nlvr2/data) into vl_tasks/nlvr2/annotations
-3. Download image the pre-processed data from [e-bug/volta/data](https://github.com/e-bug/volta/tree/main/data) as vl_tasks/nlvr2/nlvr2-lmdb-imgfeat
+1. Make a nlvr2 directory in /evaluation/vl_tasks.
+2. Download annotation data (dev.json, test1.json, and train.json) from [lil-lab/nlvr/nlvr2/data/](https://github.com/lil-lab/nlvr/tree/master/nlvr2/data) into nlvr2/annotations
+3. Download the pre-processed data (image features) from [e-bug/volta/data](https://github.com/e-bug/volta/tree/main/data) as nlvr2/nlvr2-feat.lmdb .
 4. Convert the pre-processed data into pickle files.  
-(Because using the lmdb was slow in our environment, we decided to convert it.)
+(We decided to convert the lmdb because using it was slow in our environment.)
 
     ```
-    python convert_lmdb.py --src nlvr2/nlvr2-lmdb-imgfeat --dest pickled
+    python convert_lmdb.py --src nlvr2/nlvr2-feat.lmdb --dest pickled
     ```
 
 
@@ -117,7 +117,7 @@ vl_tasks
                 (omitted)
             + dev
                 (omitted)
-        + nlvr2-lmdb-imgfeat
+        + nlvr2-feat.lmdb
             (omitted)
     - batch_run.sh
     - convert_lmdb.py
@@ -129,8 +129,8 @@ The dataset_nlvr2.py script loads data assuming this structure.
 
 ### Training
 
-**run_vl.py**. We modified [run_glue.py](https://github.com/huggingface/transformers/blob/v4.4.0/examples/text-classification/run_glue.py) in the Huggingface's transformers repository to support image feature replacement in the mini-batch creation (using set_format of the Dataset class).  
-This shows an example of the usage for ctrl_vlibert
+**run_vl.py**. We modified [run_glue.py](https://github.com/huggingface/transformers/blob/v4.4.0/examples/text-classification/run_glue.py) in the Huggingface's transformers repository to support image feature replacement when creating mini-batches (using set_format of the Dataset class).  
+Example of the usage for ctrl_vlibert:
 
 ```
 python -u evaluation/vl_tasks/run_vl.py \
@@ -156,8 +156,8 @@ python -u evaluation/vl_tasks/run_vl.py \
 
 ### Results
 
-We obtained the simmilar training results to those in the Table 2 in [the volta paper](https://arxiv.org/abs/2011.15124).  
-We fine-tuned the models by 20 epochs and show the result of the epoch where the models achieved the best *eval_accuracy*.
+We fine-tuned the models by 20 epochs and obtained the simmilar results to those in the Table 2 in [the volta paper](https://arxiv.org/abs/2011.15124).  
+We chose the best epoch according to *eval\_accuracy* instead of eval\_loss in this table, which is different from our GLUE evaluation.
 
 | model | task | epoch | eval_loss | \*eval_accuracy |
 | ----- | ---- | ----- | --------- | --------------- |
@@ -166,4 +166,3 @@ We fine-tuned the models by 20 epochs and show the result of the epoch where the
 | ctrl_vilbert | nlvr2 | 18.0 | 2.042 | 0.724 |
 | ctrl_visual_bert | nlvr2 | 19.0 | 1.702 | 0.720 |
 | ctrl_vl_bert | nlvr2 | 10.0 | 0.899 | 0.724 |
-
