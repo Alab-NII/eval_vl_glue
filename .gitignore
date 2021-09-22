@@ -2,7 +2,6 @@
 
 # data files
 evaluation/vl_tasks/nlvr2/*
-!evaluation/vl_tasks/nlvr2/.gitkeep
 
 # analysis outputs
 evaluation/analysis/*
