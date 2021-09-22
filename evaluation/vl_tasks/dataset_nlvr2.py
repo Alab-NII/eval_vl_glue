@@ -20,8 +20,13 @@ from eval_vl_glue import VoltaImageFeature
 
 class ImageFeatureFormatter(datasets.formatting.CustomFormatter):
     
-    def __init__(self, dataset_dir=None, model_config=None, transform=None):
-        
+    def __init__(self, dataset_dir=None, model_config=None, use_compat=True, transform=None):
+        """
+        dataset_dir: a path to the nlvr2 directory that contains the pickled directory.
+        model_config: model_config of the model that this formatter will provide features.
+        use_compat: If set true, this formatter use get_cat_image_feature_compat.
+        """
+
         assert model_config is not None, 'Specify model_config when you use set_format.'
         
         self.add_global_image_feature = model_config.add_global_imgfeat
@@ -29,17 +34,21 @@ class ImageFeatureFormatter(datasets.formatting.CustomFormatter):
         assert model_config.num_locs in (4, 5), f'not supported num_loc: {model_config.num_locs}'
         self.num_locs = model_config.num_locs
         self.add_area = (model_config.num_locs == 5)
-        
-        # We consider model_config.default_num_boxes is the maximum sequence size
-        self.num_boxes_per_image = model_config.default_num_boxes
-        if self.add_global_image_feature:
-            self.num_boxes_per_image += 1
-        self.total_seq_len = 2 * self.num_boxes_per_image
-        
         self.v_feature_size = model_config.v_feature_size
         
         self.pickled_file_path = os.path.join(dataset_dir, 'pickled')
         self.transform = transform
+        
+        if use_compat:
+            # Compat does not consider add global image feature
+            self.num_boxes_per_image = model_config.default_num_boxes
+            self.total_seq_len = 2 * self.num_boxes_per_image
+        else:
+            # We consider model_config.default_num_boxes is the maximum sequence size
+            self.num_boxes_per_image = model_config.default_num_boxes
+            if self.add_global_image_feature:
+                self.num_boxes_per_image += 1
+            self.total_seq_len = 2 * self.num_boxes_per_image
     
     def get_feature(self, image_id):
         """Load and return image features related to image_id
@@ -63,6 +72,38 @@ class ImageFeatureFormatter(datasets.formatting.CustomFormatter):
                 add_global_image_feature=self.add_global_image_feature,
             )
     
+    def get_cat_image_feature_compat(self, image_id_0, image_id_1):
+        """Concatenate two image feature sets to make an example.
+        """
+        
+        f0 = self.get_feature(image_id_0)
+        f1 = self.get_feature(image_id_1)
+
+        features = torch.cat((f0.features, f1.features), axis=0)
+        boxes = torch.cat((f0.feature.image_location, f1.feature.image_location), axis=0)
+        total_len = features.shape[0]
+        
+        # When total_len is shorter than expectation, we pad
+        if total_len < self.total_seq_len:
+            diff = self.total_seq_len - total_len
+            features = torch.cat((features, torch.zeros((diff, self.v_feature_size), dtype=torch.float32)), axis=0)
+            boxes = torch.cat((boxes, torch.zeros((diff, self.num_locs), dtype=torch.float32)), axis=0)    
+            total_len = self.total_seq_len
+        
+        image_mask = torch.ones((total_len,), dtype=torch.int64)
+        
+        # When total_len is longer than expectation, we truncate
+        if total_len > self.total_seq_len:
+            features = features[:self.total_seq_len]
+            boxes = boxes[:self.total_seq_len]
+            image_mask = image_mask[:self.total_seq_len]
+        
+        return {
+            'input_images': features,
+            'image_loc': boxes,
+            'image_attention_mask': image_mask,
+        }
+
     def _fit_length(self, feature):
         """
         Returns:
@@ -79,6 +120,19 @@ class ImageFeatureFormatter(datasets.formatting.CustomFormatter):
     
     def get_cat_image_feature(self, image_id_0, image_id_1):
         """Concatenate two image feature sets to make an example.
+        This method uses a sequence for images evenly. In other words, a sub sequence for an 
+        image is truncated if the length excesses self.num_boxes_per_image for each.
+
+        get_cat_image_feature_compat, which is closer to the original implementation, simply 
+        concatenates two sub sequences and then truncates it.
+        This causes the uneven sequence length when global image feats are added.
+        For example, suppose that self.num_boxes_per_image=36, #Image_A=36+1, #Image_B=36+1.
+        Then #(Image_A + Image_B)=74. -> the two last tokens are truncated to make the total length 72.
+        When separated evenly (36 + 36) in the forward function, the last token of Image_A goes 
+        to the head of Image_B and the last two tokens of image_B are missing.
+
+        Although we use get_cat_image_feature_compat as default method for compatibility, 
+        get_cat_image_feature is more accurate.
         """
         
         boxes = torch.zeros((self.total_seq_len, self.num_locs), dtype=torch.float32)
@@ -102,7 +156,11 @@ class ImageFeatureFormatter(datasets.formatting.CustomFormatter):
     def _preprocess(self, examples):
         """Add image features to examples
         """
-        updates = [self.get_cat_image_feature(i, j) for i, j in zip(examples['image_id_0'], examples['image_id_1'])]
+        if self.use_compat:
+            get_cat_image_feature = self.get_cat_image_feature_compat 
+        else:
+            get_cat_image_feature = self.get_cat_image_feature
+        updates = [get_cat_image_feature(i, j) for i, j in zip(examples['image_id_0'], examples['image_id_1'])]
         for key in ('input_images', 'image_attention_mask', 'image_loc'):
             examples[key] = [_[key] for _ in updates]
         del examples['image_id_0'], examples['image_id_1'], 
@@ -197,3 +255,4 @@ def load_dataset_vl(dataset_dir=None, filter_by_features=True):
             dataset_dict[label] = _load_from_json(path)
     
     return dataset_dict
+
